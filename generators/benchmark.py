@@ -8,7 +8,6 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
 
 @dataclass
@@ -16,8 +15,8 @@ class PhaseMetrics:
     """Metrics for a single generation phase."""
 
     name: str
-    start_time: Optional[float] = None
-    end_time: Optional[float] = None
+    start_time: float | None = None
+    end_time: float | None = None
     items_created: int = 0
     items_target: int = 0
     rate_limited: int = 0  # Number of 429 responses during this phase
@@ -78,8 +77,8 @@ class BenchmarkTracker:
 
     def __init__(self):
         self.phases: dict[str, PhaseMetrics] = {}
-        self.overall_start: Optional[float] = None
-        self.overall_end: Optional[float] = None
+        self.overall_start: float | None = None
+        self.overall_end: float | None = None
         self.logger = logging.getLogger(__name__)
 
         # Request statistics (global)
@@ -88,7 +87,7 @@ class BenchmarkTracker:
         self.error_count: int = 0
 
         # Current active phase for per-phase tracking
-        self._current_phase: Optional[str] = None
+        self._current_phase: str | None = None
 
         # Phase display names for reporting
         self.phase_display_names = {
@@ -190,7 +189,7 @@ class BenchmarkTracker:
         if self._current_phase == phase_name:
             self._current_phase = None
 
-    def get_phase(self, phase_name: str) -> Optional[PhaseMetrics]:
+    def get_phase(self, phase_name: str) -> PhaseMetrics | None:
         """Get metrics for a specific phase."""
         return self.phases.get(phase_name)
 

@@ -9,7 +9,7 @@ import logging
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
 import requests
@@ -21,7 +21,7 @@ from urllib3.util.retry import Retry
 class RateLimitState:
     """Tracks rate limiting state (shared across async tasks)"""
 
-    retry_after: Optional[float] = None
+    retry_after: float | None = None
     consecutive_429s: int = 0
     current_delay: float = 1.0
     max_delay: float = 60.0
@@ -42,7 +42,7 @@ class ConfluenceAPIClient:
     # Pre-generated text pool for high-performance random text generation
     # Shared across all instances to avoid repeated generation
     _TEXT_POOL_SIZE = 1000  # Number of pre-generated text strings per size category
-    _text_pool: Optional[dict[str, list[str]]] = None
+    _text_pool: dict[str, list[str]] | None = None
     _text_pool_lock = None  # Will be initialized on first use
 
     # Lorem ipsum words for text generation
@@ -118,7 +118,7 @@ class ConfluenceAPIClient:
         api_token: str,
         dry_run: bool = False,
         concurrency: int = 5,
-        benchmark: Optional[Any] = None,
+        benchmark: Any | None = None,
         request_delay: float = 0.0,
     ):
         self.confluence_url = confluence_url.rstrip("/")
@@ -134,8 +134,8 @@ class ConfluenceAPIClient:
         self.logger = logging.getLogger(__name__)
 
         # Async session (created lazily)
-        self._async_session: Optional[aiohttp.ClientSession] = None
-        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._async_session: aiohttp.ClientSession | None = None
+        self._semaphore: asyncio.Semaphore | None = None
 
         # Initialize text pool on first instance creation
         self._init_text_pool()
@@ -222,11 +222,11 @@ class ConfluenceAPIClient:
         self,
         method: str,
         endpoint: str,
-        data: Optional[dict] = None,
-        params: Optional[dict] = None,
+        data: dict | None = None,
+        params: dict | None = None,
         max_retries: int = 5,
-        base_url: Optional[str] = None,
-    ) -> Optional[requests.Response]:
+        base_url: str | None = None,
+    ) -> requests.Response | None:
         """Make an API call with rate limit handling.
 
         Args:
@@ -433,11 +433,11 @@ class ConfluenceAPIClient:
         self,
         method: str,
         endpoint: str,
-        data: Optional[dict] = None,
-        params: Optional[dict] = None,
+        data: dict | None = None,
+        params: dict | None = None,
         max_retries: int = 5,
-        base_url: Optional[str] = None,
-    ) -> tuple[bool, Optional[dict]]:
+        base_url: str | None = None,
+    ) -> tuple[bool, dict | None]:
         """Make an async API call with rate limit handling.
 
         Returns (success: bool, response_json: Optional[Dict])
@@ -505,7 +505,7 @@ class ConfluenceAPIClient:
 
         return (False, None)
 
-    def get_current_user_account_id(self) -> Optional[str]:
+    def get_current_user_account_id(self) -> str | None:
         """Get the current user's account ID"""
         if self.dry_run:
             return "dry-run-account-id"
