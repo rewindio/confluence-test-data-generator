@@ -1,2 +1,200 @@
-# confluence-test-data-generator
-Tooling to create test data for Confluence
+# Confluence Test Data Generator
+
+[![Tests](https://github.com/rewindio/confluence-test-data-generator/actions/workflows/test.yml/badge.svg)](https://github.com/rewindio/confluence-test-data-generator/actions/workflows/test.yml)
+[![Lint](https://github.com/rewindio/confluence-test-data-generator/actions/workflows/lint.yml/badge.svg)](https://github.com/rewindio/confluence-test-data-generator/actions/workflows/lint.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Coverage](https://img.shields.io/badge/coverage-96%25-brightgreen.svg)](https://github.com/rewindio/confluence-test-data-generator)
+
+A Python tool to generate realistic test data for Confluence Cloud instances based on production data multipliers. Intelligently handles rate limiting and uses async concurrency for optimal performance.
+
+## Features
+
+- **Async Concurrency** - Concurrent API requests for faster generation
+- **Intelligent Rate Limiting** - Adaptive throttling with exponential backoff
+- **Production-Based Multipliers** - Creates realistic data distributions from CSV config derived from thousands of real Confluence backups
+- **Easy Cleanup** - All items tagged with labels and properties for easy querying
+- **Size-Based Generation** - Supports Small/Medium/Large instance profiles
+- **Dry Run Mode** - Preview what will be created without making changes
+- **Checkpointing** - Resume interrupted runs for large-scale data generation
+- **Benchmarking** - Track timing per phase with extrapolation for large datasets
+- **Content-Only Mode** - Generate just spaces, pages, and blogposts for scale testing
+- **Performance Optimized** - Connection pooling, text pooling, memory-efficient batching
+
+## What Gets Created
+
+Based on the size bucket you choose, the tool creates:
+
+**Spaces:**
+- Spaces (with labels, properties, permissions)
+- Space look and feel settings
+- Templates
+
+**Pages:**
+- Pages (with realistic parent-child hierarchy: 60% root, 30% level 1, 10% deeper)
+- Page labels, properties, restrictions
+- Page versions
+
+**Blog Posts:**
+- Blog posts (with labels, properties, restrictions)
+- Blog post versions
+
+**Attachments:**
+- Attachments (small synthetic files for fast uploads)
+- Attachment labels and versions
+- Folders and folder restrictions
+
+**Comments:**
+- Inline comments (with versions)
+- Footer comments (with versions)
+
+**Users & Permissions:**
+- Synthetic users (using Gmail "+" trick for verification emails)
+- Space permissions (formula: spaces × users × 14)
+
+Multipliers are loaded from `item_type_multipliers.csv` for easy customization.
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/rewindio/confluence-test-data-generator.git
+cd confluence-test-data-generator
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Setup
+
+### 1. Generate an Atlassian API Token
+
+1. Go to https://id.atlassian.com/manage-profile/security/api-tokens
+2. Click "Create API token"
+3. Give it a name (e.g., "Data Generator")
+4. Copy the token (you won't see it again!)
+
+### 2. Configure Your API Token
+
+```bash
+# Copy the example file
+cp .env.example .env
+
+# Edit .env and add your token
+# CONFLUENCE_API_TOKEN=your_actual_token_here
+# CONFLUENCE_URL=https://yourcompany.atlassian.net/wiki
+# CONFLUENCE_EMAIL=your.email@company.com
+```
+
+**Important:** Never pass the token via command line - it should only be in `.env` or environment variables.
+
+## Usage
+
+### Basic Usage
+
+```bash
+# Generate 1000 content items (small instance profile)
+python confluence_data_generator.py \
+  --url https://yourcompany.atlassian.net/wiki \
+  --email your.email@company.com \
+  --count 1000
+```
+
+### Dry Run (Preview)
+
+```bash
+# See what would be created without making any API calls
+python confluence_data_generator.py \
+  --url https://yourcompany.atlassian.net/wiki \
+  --email your.email@company.com \
+  --count 10000 \
+  --dry-run
+```
+
+### Content-Only Mode (For Scale Testing)
+
+```bash
+# Only create spaces, pages, and blogposts (skip metadata, comments, attachments)
+python confluence_data_generator.py \
+  --url https://yourcompany.atlassian.net/wiki \
+  --email your.email@company.com \
+  --count 1000000 \
+  --content-only
+```
+
+### Resume Interrupted Run
+
+```bash
+# Resume from last checkpoint
+python confluence_data_generator.py \
+  --url https://yourcompany.atlassian.net/wiki \
+  --email your.email@company.com \
+  --count 1000000 \
+  --resume
+```
+
+## CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--url` | Confluence Cloud URL (required) | - |
+| `--email` | Atlassian account email (required) | - |
+| `--count` | Target content count (required) | - |
+| `--size` | Size bucket: small, medium, large | small |
+| `--prefix` | Label/property prefix for tagging | TESTDATA |
+| `--users` | Number of synthetic users to create | 10 |
+| `--concurrency` | Max concurrent requests | 5 |
+| `--request-delay` | Base delay between requests (seconds) | 0.0 |
+| `--content-only` | Only create spaces, pages, blogposts | false |
+| `--dry-run` | Preview without making API calls | false |
+| `--resume` | Resume from checkpoint | false |
+| `--no-checkpoint` | Disable checkpointing | false |
+| `--no-async` | Use synchronous mode | false |
+| `--verbose` | Enable debug logging | false |
+
+## Size Buckets
+
+Based on [Atlassian's sizing guide](https://confluence.atlassian.com/enterprise/confluence-data-center-load-profiles-946603546.html):
+
+| Bucket | Content Items |
+|--------|---------------|
+| Small | Up to 500,000 |
+| Medium | 500,000 - 2.5 million |
+| Large | 2.5 million - 10 million |
+
+## Item Type Multipliers
+
+The `item_type_multipliers.csv` file contains multipliers derived from analyzing thousands of real Confluence backups. These determine how many of each item type are created relative to the total content count.
+
+For example, with `--count 1000 --size small`:
+- ~5 spaces
+- ~152 pages
+- ~3 blogposts
+- ~659 attachments
+- ~83 inline comments
+- etc.
+
+## Development
+
+```bash
+# Install dev dependencies
+pip install -r requirements-dev.txt
+
+# Run tests
+pytest
+
+# Run tests with coverage
+pytest --cov=generators --cov-report=term-missing
+
+# Run linting
+ruff check .
+ruff format .
+```
+
+## License
+
+MIT
