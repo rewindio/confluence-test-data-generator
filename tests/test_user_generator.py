@@ -136,6 +136,21 @@ class TestEmailParsing:
         with pytest.raises(ValueError, match="Invalid email format"):
             generator.parse_email("not-an-email")
 
+    def test_parse_email_empty_local_part(self, generator):
+        """Email with empty local part raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid email format"):
+            generator.parse_email("@example.com")
+
+    def test_parse_email_empty_domain(self, generator):
+        """Email with empty domain raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid email format"):
+            generator.parse_email("user@")
+
+    def test_parse_email_whitespace_only(self, generator):
+        """Email with whitespace-only parts raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid email format"):
+            generator.parse_email("  @  ")
+
     def test_generate_sandbox_email(self, generator):
         """Sandbox email is generated correctly with default suffix."""
         email = generator.generate_sandbox_email("user@example.com", 1)
@@ -599,6 +614,36 @@ class TestCLI:
         assert exc_info.value.code == 1
         captured = capsys.readouterr()
         assert "API token required" in captured.err
+
+    def test_main_zero_users(self, monkeypatch, capsys):
+        """Main exits with error when user count is zero."""
+        monkeypatch.setenv("CONFLUENCE_API_TOKEN", TEST_TOKEN)
+        monkeypatch.setattr(
+            "sys.argv",
+            ["prog", "--url", CONFLUENCE_URL, "--email", TEST_EMAIL, "--base-email", BASE_EMAIL, "--users", "0"],
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "must be a positive integer" in captured.err
+
+    def test_main_negative_users(self, monkeypatch, capsys):
+        """Main exits with error when user count is negative."""
+        monkeypatch.setenv("CONFLUENCE_API_TOKEN", TEST_TOKEN)
+        monkeypatch.setattr(
+            "sys.argv",
+            ["prog", "--url", CONFLUENCE_URL, "--email", TEST_EMAIL, "--base-email", BASE_EMAIL, "--users", "-5"],
+        )
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+        assert exc_info.value.code == 1
+        captured = capsys.readouterr()
+        assert "must be a positive integer" in captured.err
 
     def test_main_dry_run(self, monkeypatch, capsys):
         """Main runs in dry-run mode."""

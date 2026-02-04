@@ -103,6 +103,99 @@ class ConfluenceUserGenerator:
 
         return session
 
+    def _parse_retry_after(self, header_value: str | None, default: float = 30.0) -> float:
+        """Parse the Retry-After header value.
+
+        Handles both numeric seconds and HTTP date formats per RFC 7231.
+
+        Args:
+            header_value: The Retry-After header value
+            default: Default value if parsing fails
+
+        Returns:
+            Number of seconds to wait
+        """
+        if not header_value:
+            return default
+        try:
+            return float(header_value)
+        except ValueError:
+            # Could be an HTTP date format, fall back to default
+            self.logger.debug(f"Could not parse Retry-After header '{header_value}', using default {default}s")
+            return default
+
+    def _make_request_with_retries(
+        self,
+        method: str,
+        url: str,
+        data: dict | None = None,
+        params: dict | None = None,
+        max_retries: int = 5,
+        max_rate_limit_retries: int = 10,
+        api_name: str = "API",
+    ) -> requests.Response | None:
+        """Make an HTTP request with retry and rate limit handling.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            url: Full URL to request
+            data: JSON data to send
+            params: Query parameters
+            max_retries: Maximum retry attempts for errors
+            max_rate_limit_retries: Maximum retries for rate limiting (429)
+            api_name: Name of API for logging
+
+        Returns:
+            Response object on success, None on client errors (4xx)
+        """
+        rate_limit_retries = 0
+
+        for attempt in range(max_retries):
+            try:
+                response = self.session.request(
+                    method=method,
+                    url=url,
+                    json=data,
+                    params=params,
+                    auth=(self.email, self.api_token),
+                    headers={"Accept": "application/json", "Content-Type": "application/json"},
+                    timeout=30,
+                )
+
+                if response.status_code == 429:
+                    rate_limit_retries += 1
+                    if rate_limit_retries > max_rate_limit_retries:
+                        self.logger.error(f"Exceeded max rate limit retries ({max_rate_limit_retries})")
+                        return None
+                    retry_after = self._parse_retry_after(response.headers.get("Retry-After"))
+                    self.logger.warning(f"Rate limited. Waiting {retry_after}s... (retry {rate_limit_retries}/{max_rate_limit_retries})")
+                    time.sleep(retry_after)
+                    continue
+
+                # 4xx errors are client errors - don't retry, return None
+                if 400 <= response.status_code < 500:
+                    self.logger.debug(f"Client error {response.status_code}: {response.text[:200]}")
+                    return None
+
+                response.raise_for_status()
+                return response
+
+            except requests.exceptions.RequestException as e:
+                self.logger.error(f"{api_name} call failed (attempt {attempt + 1}/{max_retries}): {e}")
+                if hasattr(e, "response") and e.response is not None:
+                    try:
+                        error_detail = e.response.text
+                        self.logger.error(f"Response body: {error_detail}")
+                    except Exception as log_err:
+                        self.logger.debug(f"Failed to read error response body: {log_err}")
+                # Only retry on network/server errors, not client errors
+                if attempt < max_retries - 1:
+                    time.sleep(2**attempt)
+                else:
+                    raise
+
+        return None
+
     def _api_call(
         self,
         method: str,
@@ -112,7 +205,7 @@ class ConfluenceUserGenerator:
         max_retries: int = 5,
         api_version: str = "v1",
     ) -> requests.Response | None:
-        """Make an API call with rate limit handling.
+        """Make a Confluence API call with rate limit handling.
 
         Args:
             method: HTTP method (GET, POST, etc.)
@@ -123,7 +216,7 @@ class ConfluenceUserGenerator:
             api_version: API version ("v1" for /rest/api, "v2" for /api/v2)
 
         Returns:
-            Response object on success, None on 404 (not found)
+            Response object on success, None on client errors (4xx)
         """
         if api_version == "v2":
             url = f"{self.confluence_url}/wiki/api/v2/{endpoint}"
@@ -136,47 +229,14 @@ class ConfluenceUserGenerator:
                 self.logger.debug(f"  Data: {data}")
             return None
 
-        for attempt in range(max_retries):
-            try:
-                response = self.session.request(
-                    method=method,
-                    url=url,
-                    json=data,
-                    params=params,
-                    auth=(self.email, self.api_token),
-                    headers={"Accept": "application/json", "Content-Type": "application/json"},
-                    timeout=30,
-                )
-
-                if response.status_code == 429:
-                    retry_after = float(response.headers.get("Retry-After", 30))
-                    self.logger.warning(f"Rate limited. Waiting {retry_after}s...")
-                    time.sleep(retry_after)
-                    continue
-
-                # 4xx errors are client errors - don't retry, return None
-                if 400 <= response.status_code < 500:
-                    self.logger.debug(f"Client error {response.status_code}: {response.text[:200]}")
-                    return None
-
-                response.raise_for_status()
-                return response
-
-            except requests.exceptions.RequestException as e:
-                self.logger.error(f"API call failed (attempt {attempt + 1}/{max_retries}): {e}")
-                if hasattr(e, "response") and e.response is not None:
-                    try:
-                        error_detail = e.response.text
-                        self.logger.error(f"Response body: {error_detail}")
-                    except Exception:
-                        pass
-                # Only retry on network/server errors, not client errors
-                if attempt < max_retries - 1:
-                    time.sleep(2**attempt)
-                else:
-                    raise
-
-        return None
+        return self._make_request_with_retries(
+            method=method,
+            url=url,
+            data=data,
+            params=params,
+            max_retries=max_retries,
+            api_name="Confluence API",
+        )
 
     def _admin_api_call(
         self,
@@ -186,15 +246,14 @@ class ConfluenceUserGenerator:
         params: dict | None = None,
         max_retries: int = 5,
     ) -> requests.Response | None:
-        """Make an Admin API call for user management.
+        """Make an Atlassian Admin API call for user management.
 
         The Atlassian Admin API is used to invite users to Cloud sites.
         Uses the same base URL without /wiki prefix.
 
         Returns:
-            Response object on success, None on 404 (not found)
+            Response object on success, None on client errors (4xx)
         """
-        # Admin API uses different endpoint structure
         url = f"{self.confluence_url}/rest/api/3/{endpoint}"
 
         if self.dry_run:
@@ -203,47 +262,14 @@ class ConfluenceUserGenerator:
                 self.logger.debug(f"  Data: {data}")
             return None
 
-        for attempt in range(max_retries):
-            try:
-                response = self.session.request(
-                    method=method,
-                    url=url,
-                    json=data,
-                    params=params,
-                    auth=(self.email, self.api_token),
-                    headers={"Accept": "application/json", "Content-Type": "application/json"},
-                    timeout=30,
-                )
-
-                if response.status_code == 429:
-                    retry_after = float(response.headers.get("Retry-After", 30))
-                    self.logger.warning(f"Rate limited. Waiting {retry_after}s...")
-                    time.sleep(retry_after)
-                    continue
-
-                # 4xx errors are client errors - don't retry, return None
-                if 400 <= response.status_code < 500:
-                    self.logger.debug(f"Client error {response.status_code}: {response.text[:200]}")
-                    return None
-
-                response.raise_for_status()
-                return response
-
-            except requests.exceptions.RequestException as e:
-                self.logger.error(f"Admin API call failed (attempt {attempt + 1}/{max_retries}): {e}")
-                if hasattr(e, "response") and e.response is not None:
-                    try:
-                        error_detail = e.response.text
-                        self.logger.error(f"Response body: {error_detail}")
-                    except Exception:
-                        pass
-                # Only retry on network/server errors, not client errors
-                if attempt < max_retries - 1:
-                    time.sleep(2**attempt)
-                else:
-                    raise
-
-        return None
+        return self._make_request_with_retries(
+            method=method,
+            url=url,
+            data=data,
+            params=params,
+            max_retries=max_retries,
+            api_name="Admin API",
+        )
 
     def parse_email(self, base_email: str) -> tuple[str, str]:
         """Parse email into prefix and domain parts.
@@ -262,8 +288,15 @@ class ConfluenceUserGenerator:
 
         # Handle existing + in email
         local_part, domain = base_email.rsplit("@", 1)
+
+        # Validate both parts are non-empty
+        local_part = local_part.strip()
+        domain = domain.strip()
+        if not local_part or not domain:
+            raise ValueError(f"Invalid email format: {base_email}")
+
         if "+" in local_part:
-            prefix = local_part.split("+")[0]
+            prefix = local_part.split("+", 1)[0]
         else:
             prefix = local_part
 
@@ -670,6 +703,11 @@ Generated emails will be in format (default suffix is 'confluence'):
     api_token = args.token or os.environ.get("CONFLUENCE_API_TOKEN")
     if not api_token:
         print("Error: Confluence API token required. Use --token or set CONFLUENCE_API_TOKEN", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate user count is positive
+    if args.users <= 0:
+        print("Error: --users must be a positive integer", file=sys.stderr)
         sys.exit(1)
 
     try:
