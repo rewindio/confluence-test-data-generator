@@ -79,8 +79,9 @@ class ConfluenceUserGenerator:
         hostname = parsed.netloc or parsed.path
 
         # Extract site name from hostname (e.g., "mycompany" from "mycompany.atlassian.net")
-        if ".atlassian.net" in hostname:
-            return hostname.split(".atlassian.net")[0]
+        # Use endswith() to prevent URL substring attacks (e.g., evil.atlassian.net.attacker.com)
+        if hostname.endswith(".atlassian.net"):
+            return hostname.removesuffix(".atlassian.net")
 
         # Fallback: use full hostname without dots
         return hostname.replace(".", "-")
