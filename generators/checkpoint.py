@@ -88,6 +88,8 @@ class CheckpointData:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CheckpointData":
+        # Work on a shallow copy to avoid mutating the caller's dictionary
+        data = dict(data)
         phases = {k: PhaseProgress.from_dict(v) for k, v in data.pop("phases", {}).items()}
         return cls(phases=phases, **data)
 
@@ -596,7 +598,8 @@ class CheckpointManager:
             final_path = self.get_checkpoint_path(self._checkpoint.run_id)
             if self._checkpoint_path != final_path:
                 try:
-                    self._checkpoint_path.rename(final_path)
+                    # Use replace for atomic overwrite if final_path already exists
+                    self._checkpoint_path.replace(final_path)
                     self.logger.info(f"Archived checkpoint to: {final_path}")
                 except OSError as e:
                     self.logger.warning(f"Could not archive checkpoint: {e}")
