@@ -168,7 +168,9 @@ class ConfluenceUserGenerator:
                         self.logger.error(f"Exceeded max rate limit retries ({max_rate_limit_retries})")
                         return None
                     retry_after = self._parse_retry_after(response.headers.get("Retry-After"))
-                    self.logger.warning(f"Rate limited. Waiting {retry_after}s... (retry {rate_limit_retries}/{max_rate_limit_retries})")
+                    self.logger.warning(
+                        f"Rate limited. Waiting {retry_after}s... (retry {rate_limit_retries}/{max_rate_limit_retries})"
+                    )
                     time.sleep(retry_after)
                     continue
 
