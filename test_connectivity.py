@@ -58,10 +58,12 @@ def test_connectivity():
     # Create session
     session = requests.Session()
     session.auth = (email, api_token)
-    session.headers.update({
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    })
+    session.headers.update(
+        {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+    )
 
     # Test 1: Get current user (try v1 API first, then v2)
     print("Test 1: Get current user...")
@@ -76,7 +78,7 @@ def test_connectivity():
             print(f"    Account ID: {user.get('accountId', 'Unknown')}")
             print(f"    Username: {user.get('username', user.get('publicName', 'N/A'))}")
         elif response.status_code == 404:
-            print(f"  ? v1 API returned 404, trying v2...")
+            print("  ? v1 API returned 404, trying v2...")
             # Try v2 API
             response = session.get(f"{wiki_base}/api/v2/users/current")
             if response.status_code == 200:
@@ -85,7 +87,7 @@ def test_connectivity():
                 print(f"    Account ID: {user.get('accountId', 'Unknown')}")
             else:
                 print(f"  ✗ v2 API also failed with status {response.status_code}")
-                print(f"    This may indicate Confluence is not enabled on this site.")
+                print("    This may indicate Confluence is not enabled on this site.")
                 print(f"    URL tested: {wiki_base}/")
                 sys.exit(1)
         else:
