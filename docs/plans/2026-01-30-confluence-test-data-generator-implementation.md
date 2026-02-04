@@ -253,34 +253,35 @@ git commit -m "feat: add checkpoint manager for resumable generation"
 
 ## Task 5: User Generator (confluence_user_generator.py)
 
+**Status: COMPLETED**
+
 **Files:**
 - Create: `confluence_user_generator.py`
+- Create: `tests/test_user_generator.py`
 - Reference: `/Users/dnorth/src/tooling/jira-test-data-generator/jira_user_generator.py`
 
-**Step 1: Create confluence_user_generator.py**
+**Implementation Notes:**
 
-Copy from Jira's user generator with these changes:
-- Class name: `ConfluenceUserGenerator`
-- API endpoint for users: Confluence Cloud uses same Atlassian admin API
-- Products list: `["confluence"]` instead of Jira products
-- Environment variable: `CONFLUENCE_API_TOKEN`
-- Update CLI help text for Confluence context
+The user generator was built with these key features:
 
-Key API endpoints:
-- Check user: `GET /wiki/rest/api/user?accountId={id}` or search
-- Create/invite user: Same Atlassian admin API as Jira (org-level)
+1. **Gmail "+" Alias**: Creates sandbox emails like `user+confluence1@gmail.com`
+2. **Configurable Suffix**: `--suffix` option (default: "confluence") to avoid collisions with Jira sandbox users
+3. **Site Name Auto-Detection**: Extracts site name from URL (e.g., `mycompany` from `mycompany.atlassian.net`)
+4. **Confluence Access via Group**: Users are added to `confluence-users-{site-name}` group for Confluence access
+5. **Group Override**: `--confluence-users-group` option to override auto-detected group name
 
-**Step 2: Verify script runs**
+**Key API Learnings:**
+- The `/rest/api/3/user` endpoint only accepts Jira product names in the `products` field
+- Confluence access must be granted via group membership (not products field)
+- Atlassian Cloud default groups include site name: `confluence-users-{site-name}`
+- Adding users to groups uses Admin API: `POST /rest/api/3/group/user` with `groupname` (lowercase) param
 
-Run: `python confluence_user_generator.py --help`
-Expected: Help text displays
+**API Endpoints Used:**
+- Check user: `GET /rest/api/3/user/search?query={email}`
+- Create/invite user: `POST /rest/api/3/user` with `products: []`
+- Add to group: `POST /rest/api/3/group/user?groupname={name}`
 
-**Step 3: Commit**
-
-```bash
-git add confluence_user_generator.py
-git commit -m "feat: add user generator for synthetic Confluence users"
-```
+**Tests:** 46 tests covering URL handling, email parsing, API calls, user/group creation, CLI
 
 ---
 

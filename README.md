@@ -92,6 +92,59 @@ cp .env.example .env
 
 **Important:** Never pass the token via command line - it should only be in `.env` or environment variables.
 
+## Standalone User Generator
+
+For creating test users separately (before running the main data generator), use the standalone user generator:
+
+```bash
+# Generate 5 test users
+python confluence_user_generator.py \
+  --url https://yourcompany.atlassian.net \
+  --email admin@yourcompany.com \
+  --base-email youremail@gmail.com \
+  --users 5
+
+# Generate users with custom suffix (to avoid collision with Jira sandbox users)
+python confluence_user_generator.py \
+  --url https://yourcompany.atlassian.net \
+  --email admin@yourcompany.com \
+  --base-email youremail@gmail.com \
+  --users 10 \
+  --suffix conftest
+
+# Dry run to preview
+python confluence_user_generator.py \
+  --url https://yourcompany.atlassian.net \
+  --email admin@yourcompany.com \
+  --base-email youremail@gmail.com \
+  --users 5 \
+  --dry-run
+```
+
+### User Generator Features
+
+- **Gmail "+" Alias**: Creates emails like `user+confluence1@gmail.com`, `user+confluence2@gmail.com`
+- **Auto-Detection**: Automatically detects site name and adds users to correct `confluence-users-{site}` group
+- **Confluence Access**: Users automatically get Confluence access via group membership
+- **Configurable Suffix**: Use `--suffix` to avoid email collisions (default: "confluence")
+- **Group Creation**: Optionally create custom groups with `--groups "Group 1" "Group 2"`
+
+### User Generator CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--url` | Confluence/Atlassian URL (required) | - |
+| `--email` | Admin email (required) | - |
+| `--token` | API token (or use env var) | - |
+| `--base-email` | Base email for sandbox users (required) | - |
+| `--users` | Number of users to create (required) | - |
+| `--suffix` | Email suffix for sandbox users | confluence |
+| `--confluence-users-group` | Override auto-detected group | auto |
+| `--groups` | Additional groups to create | - |
+| `--user-prefix` | Display name prefix | Sandbox |
+| `--dry-run` | Preview without creating | false |
+| `--verbose` | Enable debug logging | false |
+
 ## Usage
 
 ### Basic Usage
