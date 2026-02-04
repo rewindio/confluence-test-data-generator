@@ -25,7 +25,7 @@
 ```
 .
 ├── confluence_data_generator.py  # Main orchestrator (TODO)
-├── confluence_user_generator.py  # User creation helper (TODO)
+├── confluence_user_generator.py  # Standalone user/group generator (DONE)
 ├── generators/                   # Modular generators package
 │   ├── __init__.py              # Package exports
 │   ├── base.py                  # ConfluenceAPIClient, RateLimitState (~640 lines)
@@ -41,7 +41,8 @@
 │   ├── conftest.py              # Shared pytest fixtures
 │   ├── test_base.py             # ConfluenceAPIClient tests
 │   ├── test_benchmark.py        # BenchmarkTracker tests
-│   └── test_checkpoint.py       # CheckpointManager tests
+│   ├── test_checkpoint.py       # CheckpointManager tests
+│   └── test_user_generator.py   # User generator tests (51 tests)
 ├── .github/workflows/
 │   ├── test.yml                 # Tests with 90% coverage threshold
 │   ├── lint.yml                 # Ruff linting
@@ -66,6 +67,26 @@
 1. **Test Coverage**: Minimum 90% coverage enforced by CI. Never lower this threshold.
 2. **Linting**: All code must pass `ruff check .` and `ruff format --check .`
 3. **Security**: CodeQL scanning enabled - all security alerts must be resolved
+
+### Task Completion Checklist
+
+Before marking any task complete, verify documentation is up to date:
+
+**Internal Documentation** (in `docs/plans/`):
+- [ ] Implementation plan status updated (mark tasks as COMPLETED)
+- [ ] Any API learnings or gotchas documented
+- [ ] Architecture decisions captured
+
+**External Documentation**:
+- [ ] `README.md` - User-facing usage instructions and examples
+- [ ] `CLAUDE.md` - Technical details, patterns, and AI agent guidance
+- [ ] CLI help text in the code itself (`--help` output)
+
+**When to Update**:
+- New feature added → Update README usage section + CLAUDE.md file structure
+- New CLI option → Update README CLI table + CLAUDE.md Command Line Options
+- Bug fix with learnings → Add to CLAUDE.md Coding Patterns section
+- API endpoint used → Verify CLAUDE.md API Endpoints section is current
 
 ### Coding Patterns (Lessons from PR Reviews)
 
@@ -345,6 +366,15 @@ Based on [Atlassian's sizing guide](https://confluence.atlassian.com/enterprise/
 2. Pass through to relevant generators
 3. Update README.md
 4. Update this file's Command Line Options section
+
+### "Complete a task"
+
+Always check documentation before marking complete:
+
+1. **Internal docs**: Update `docs/plans/` implementation plan (mark status, add learnings)
+2. **README.md**: Add/update usage examples, CLI options, feature descriptions
+3. **CLAUDE.md**: Update file structure, add patterns/gotchas, update API endpoints
+4. **Code docs**: Ensure CLI `--help` text is accurate and helpful
 
 ---
 
