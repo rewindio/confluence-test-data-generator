@@ -95,7 +95,15 @@ class CheckpointData:
 
 
 class CheckpointManager:
-    """Manages checkpoint file operations for resumable generation."""
+    """Manages checkpoint file operations for resumable generation.
+
+    Thread-Safety Note:
+        This class is designed for single-threaded use by the main orchestrator.
+        Checkpoint updates are serialized through the orchestrator even when using
+        async concurrency for API calls. Do not call checkpoint methods from multiple
+        concurrent tasks - the orchestrator should aggregate results and update the
+        checkpoint from a single task.
+    """
 
     # All phases in execution order
     PHASE_ORDER = [
