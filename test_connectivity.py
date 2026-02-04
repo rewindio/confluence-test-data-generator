@@ -52,7 +52,7 @@ def test_connectivity():
     print("=" * 60)
     print(f"URL: {confluence_url}")
     print(f"Email: {email}")
-    print(f"Token: {'*' * 8}...{api_token[-4:]}")
+    print(f"Token: {'*' * 12} (configured)")
     print()
 
     # Create session
