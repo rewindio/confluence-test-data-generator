@@ -413,37 +413,38 @@ class ConfluenceDataGenerator:
         self._init_or_resume_checkpoint(content_count, counts, async_mode=True)
         self._log_header(counts)
 
-        # Phase 1: Create spaces
-        spaces = await self._create_spaces_async(counts)
+        try:
+            # Phase 1: Create spaces
+            spaces = await self._create_spaces_async(counts)
 
-        if not spaces:
-            self.logger.error("No spaces created, cannot continue")
-            return
+            if not spaces:
+                self.logger.error("No spaces created, cannot continue")
+                return
 
-        # Phase 2: Create space-related items (labels, properties, permissions)
-        if not self.content_only:
-            await self._create_space_items_async(spaces, counts)
+            # Phase 2: Create space-related items (labels, properties, permissions)
+            if not self.content_only:
+                await self._create_space_items_async(spaces, counts)
 
-        # Phase 3: Create pages (NOT YET IMPLEMENTED)
-        # pages = await self._create_pages_async(spaces, counts)
+            # Phase 3: Create pages (NOT YET IMPLEMENTED)
+            # pages = await self._create_pages_async(spaces, counts)
 
-        # Phase 4: Create page-related items (NOT YET IMPLEMENTED)
-        # await self._create_page_items_async(pages, counts)
+            # Phase 4: Create page-related items (NOT YET IMPLEMENTED)
+            # await self._create_page_items_async(pages, counts)
 
-        # Phase 5: Create blogposts (NOT YET IMPLEMENTED)
-        # blogposts = await self._create_blogposts_async(spaces, counts)
+            # Phase 5: Create blogposts (NOT YET IMPLEMENTED)
+            # blogposts = await self._create_blogposts_async(spaces, counts)
 
-        # Phase 6: Create blogpost-related items (NOT YET IMPLEMENTED)
-        # await self._create_blogpost_items_async(blogposts, counts)
+            # Phase 6: Create blogpost-related items (NOT YET IMPLEMENTED)
+            # await self._create_blogpost_items_async(blogposts, counts)
 
-        # Phase 7: Create attachments (NOT YET IMPLEMENTED)
-        # Phase 8: Create comments (NOT YET IMPLEMENTED)
-        # Phase 9: Create templates (NOT YET IMPLEMENTED)
+            # Phase 7: Create attachments (NOT YET IMPLEMENTED)
+            # Phase 8: Create comments (NOT YET IMPLEMENTED)
+            # Phase 9: Create templates (NOT YET IMPLEMENTED)
 
-        # Close async session
-        await self.space_gen.close_async_session()
-
-        self._log_footer()
+            self._log_footer()
+        finally:
+            # Always close async session
+            await self.space_gen.close_async_session()
 
     async def _create_spaces_async(self, counts: dict[str, int]) -> list[dict]:
         """Create spaces asynchronously.
