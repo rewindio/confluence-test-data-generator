@@ -444,7 +444,7 @@ class ConfluenceDataGenerator:
             self._log_footer()
         finally:
             # Always close async session
-            await self.space_gen.close_async_session()
+            await self.space_gen._close_async_session()
 
     async def _create_spaces_async(self, counts: dict[str, int]) -> list[dict]:
         """Create spaces asynchronously.
@@ -503,8 +503,8 @@ class ConfluenceDataGenerator:
                 self.logger.info(f"\nCreating {total_labels} space labels ({labels_per_space} per space, async)...")
                 self.benchmark.start_phase("space_labels", total_labels)
 
-                # Create tasks for parallel execution
-                tasks = [self.space_gen.add_space_labels_async(key, labels_per_space) for key in space_keys]
+                # Create tasks for parallel execution - wrap each key in a list
+                tasks = [self.space_gen.add_space_labels_async([key], labels_per_space) for key in space_keys]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 created = sum(r for r in results if isinstance(r, int))
@@ -524,8 +524,9 @@ class ConfluenceDataGenerator:
                 self.logger.info(f"\nCreating {total_props} space properties ({props_per_space} per space, async)...")
                 self.benchmark.start_phase("space_properties", total_props)
 
-                # Create tasks for parallel execution
-                tasks = [self.space_gen.add_space_properties_async(key, props_per_space) for key in space_keys]
+                # Create tasks for parallel execution - uses space IDs, wrap each in list
+                space_ids = [s["id"] for s in spaces]
+                tasks = [self.space_gen.set_space_properties_async([sid], props_per_space) for sid in space_ids]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 created = sum(r for r in results if isinstance(r, int))
@@ -534,24 +535,21 @@ class ConfluenceDataGenerator:
                 self._complete_phase("space_properties")
                 self.logger.info(f"Created {created} space properties")
 
-        # Space look and feel - run in parallel across spaces
+        # Space look and feel - no async version, use sync
         if not self._is_phase_complete("space_look_and_feel"):
             num_laf = counts.get("space_look_and_feel_setting", 0)
             if num_laf > 0:
                 self._start_phase("space_look_and_feel")
                 spaces_to_update = min(num_laf, len(spaces))
 
-                self.logger.info(f"\nUpdating look and feel for {spaces_to_update} spaces (async)...")
+                self.logger.info(f"\nUpdating look and feel for {spaces_to_update} spaces...")
                 self.benchmark.start_phase("space_look_and_feel", spaces_to_update)
 
-                # Create tasks for parallel execution
-                tasks = []
+                created = 0
                 for space in spaces[:spaces_to_update]:
                     homepage_config = {"welcomeMessage": f"Welcome to {space.get('name', space['key'])}"}
-                    tasks.append(self.space_gen.set_space_look_and_feel_async(space["key"], homepage_config))
-
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                created = sum(1 for r in results if r is True)
+                    if self.space_gen.set_space_look_and_feel(space["key"], homepage_config):
+                        created += 1
 
                 self.benchmark.end_phase("space_look_and_feel", created)
                 self._complete_phase("space_look_and_feel")
