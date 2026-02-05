@@ -20,6 +20,7 @@ ENV/
 # Project specific
 logs/
 checkpoints/
+confluence_checkpoint_*.json
 *.log
 
 # Testing
