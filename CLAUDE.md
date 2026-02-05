@@ -426,13 +426,24 @@ Never continue working on the old feature branch after its PR is merged.
 
 ### Integration Testing Before User Review
 
-Before asking the user to test new functionality, run integration tests yourself:
+Before asking the user to test new functionality, run integration tests yourself using credentials from `.env`:
 
-1. **Run the tool with minimal data:**
+1. **Run the tool with minimal data** (uses CONFLUENCE_URL and CONFLUENCE_EMAIL from .env):
    ```bash
    .venv/bin/python confluence_data_generator.py \
-       --url https://rewind-jira-scale-testing.atlassian.net/wiki \
-       --email dave.north+jira-dev@rewind.io \
+       --url $CONFLUENCE_URL \
+       --email $CONFLUENCE_EMAIL \
+       --count 1 \
+       --spaces 1 \
+       --prefix AITEST
+   ```
+
+   Or source the .env file first:
+   ```bash
+   source .env
+   .venv/bin/python confluence_data_generator.py \
+       --url $CONFLUENCE_URL \
+       --email $CONFLUENCE_EMAIL \
        --count 1 \
        --spaces 1 \
        --prefix AITEST
@@ -447,7 +458,9 @@ Before asking the user to test new functionality, run integration tests yourself
 
 4. **Clean up after successful test:**
    ```bash
-   # Delete test spaces via API or note for user to clean up
+   source .env
+   curl -u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" -X DELETE \
+       "$CONFLUENCE_URL/rest/api/space/AITEST1"
    ```
 
 This catches issues like wrong method names, incorrect API parameters, and missing async methods before the user wastes time debugging.
