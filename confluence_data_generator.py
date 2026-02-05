@@ -186,7 +186,7 @@ class ConfluenceDataGenerator:
         self.logger.info("=" * 60)
         self.logger.info("GENERATION COMPLETE")
         self.logger.info("=" * 60)
-        self.logger.info(self.benchmark.get_summary())
+        self.logger.info(self.benchmark.get_summary_report())
         self.logger.info("=" * 60)
 
     # ========== Checkpoint Helper Methods ==========
@@ -379,27 +379,11 @@ class ConfluenceDataGenerator:
         # if not self._is_phase_complete("space_permissions"):
         #     ...
 
-        # Space look and feel
+        # Space look and feel - SKIPPED: Confluence Cloud returns 405 for this API
+        # The /rest/api/settings/lookandfeel/custom endpoint is not available in Cloud
         if not self._is_phase_complete("space_look_and_feel"):
-            num_laf = counts.get("space_look_and_feel_setting", 0)
-            if num_laf > 0:
-                self._start_phase("space_look_and_feel")
-                # Apply look and feel to spaces that need it
-                spaces_to_update = min(num_laf, len(spaces))
-
-                self.logger.info(f"\nUpdating look and feel for {spaces_to_update} spaces...")
-                self.benchmark.start_phase("space_look_and_feel", spaces_to_update)
-
-                created = 0
-                for space in spaces[:spaces_to_update]:
-                    homepage_config = {"welcomeMessage": f"Welcome to {space.get('name', space['key'])}"}
-                    success = self.space_gen.set_space_look_and_feel(space["key"], homepage_config)
-                    if success:
-                        created += 1
-
-                self.benchmark.end_phase("space_look_and_feel", created)
-                self._complete_phase("space_look_and_feel")
-                self.logger.info(f"Updated {created} space look and feel settings")
+            self._complete_phase("space_look_and_feel")
+            self.logger.info("Skipping space look and feel (not supported in Confluence Cloud)")
 
     # ========== Async Generation Methods ==========
 
@@ -535,25 +519,10 @@ class ConfluenceDataGenerator:
                 self._complete_phase("space_properties")
                 self.logger.info(f"Created {created} space properties")
 
-        # Space look and feel - no async version, use sync
+        # Space look and feel - SKIPPED: Confluence Cloud returns 405 for this API
         if not self._is_phase_complete("space_look_and_feel"):
-            num_laf = counts.get("space_look_and_feel_setting", 0)
-            if num_laf > 0:
-                self._start_phase("space_look_and_feel")
-                spaces_to_update = min(num_laf, len(spaces))
-
-                self.logger.info(f"\nUpdating look and feel for {spaces_to_update} spaces...")
-                self.benchmark.start_phase("space_look_and_feel", spaces_to_update)
-
-                created = 0
-                for space in spaces[:spaces_to_update]:
-                    homepage_config = {"welcomeMessage": f"Welcome to {space.get('name', space['key'])}"}
-                    if self.space_gen.set_space_look_and_feel(space["key"], homepage_config):
-                        created += 1
-
-                self.benchmark.end_phase("space_look_and_feel", created)
-                self._complete_phase("space_look_and_feel")
-                self.logger.info(f"Updated {created} space look and feel settings")
+            self._complete_phase("space_look_and_feel")
+            self.logger.info("Skipping space look and feel (not supported in Confluence Cloud)")
 
 
 def setup_logging(prefix: str, verbose: bool = False) -> str:
