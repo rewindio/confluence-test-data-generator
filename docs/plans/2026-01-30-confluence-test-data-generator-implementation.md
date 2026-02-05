@@ -307,13 +307,23 @@ All methods have async counterparts with `_async` suffix using memory-efficient 
 
 **API Endpoints Used:**
 - `POST /api/v2/spaces` - Create space
-- `GET /api/v2/spaces/{key}` - Get space by key
-- `POST /api/v2/spaces/{id}/labels` - Add label
+- `GET /api/v2/spaces?keys={key}` - Get space by key (v2 uses query param, not path)
+- `POST /rest/api/space/{key}/label` - Add label (legacy API, v2 doesn't support)
+- `POST /api/v2/spaces/{id}/categories` - Add category
 - `POST /api/v2/spaces/{id}/properties` - Set property
 - `POST /api/v2/spaces/{id}/permissions` - Add permission
 - `PUT /rest/api/settings/lookandfeel/custom?spaceKey={key}` - Set look and feel (legacy API)
 
-**Tests:** 45 tests covering initialization, space operations, labels, properties, permissions, look and feel, and all async variants
+**Design Decision: Labels vs Categories**
+
+Space labels are deprecated in Confluence Cloud, replaced by categories. However, we create BOTH:
+- **Labels**: For backup compatibility (existing backups contain labels that need to be restored)
+- **Categories**: The current Confluence Cloud mechanism for organizing spaces
+
+When the `--labels` count is specified, both labels AND categories are created in the same ratio.
+This ensures test data covers both the legacy format (for backup/restore testing) and the current format.
+
+**Tests:** 45 tests covering initialization, space operations, labels, categories, properties, permissions, look and feel, and all async variants
 
 ---
 

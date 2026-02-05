@@ -91,8 +91,8 @@ class TestSpaceOperations:
         """Test getting a space successfully."""
         responses.add(
             responses.GET,
-            f"{CONFLUENCE_URL}/api/v2/spaces/TEST1",
-            json={"key": "TEST1", "id": "10001", "name": "Test Space 1"},
+            f"{CONFLUENCE_URL}/api/v2/spaces",
+            json={"results": [{"key": "TEST1", "id": "10001", "name": "Test Space 1"}]},
             status=200,
         )
 
@@ -115,9 +115,9 @@ class TestSpaceOperations:
         """Test getting a space that doesn't exist."""
         responses.add(
             responses.GET,
-            f"{CONFLUENCE_URL}/api/v2/spaces/NOTFOUND",
-            json={"message": "Space not found"},
-            status=404,
+            f"{CONFLUENCE_URL}/api/v2/spaces",
+            json={"results": []},
+            status=200,
         )
 
         generator = SpaceGenerator(
@@ -179,11 +179,11 @@ class TestSpaceOperations:
             json={"message": "Space already exists"},
             status=409,
         )
-        # Get space call succeeds
+        # Get space call succeeds (uses query param now)
         responses.add(
             responses.GET,
-            f"{CONFLUENCE_URL}/api/v2/spaces/TEST1",
-            json={"key": "TEST1", "id": "10001", "name": "Existing Space"},
+            f"{CONFLUENCE_URL}/api/v2/spaces",
+            json={"results": [{"key": "TEST1", "id": "10001", "name": "Existing Space"}]},
             status=200,
         )
 
@@ -268,10 +268,11 @@ class TestSpaceLabels:
     @responses.activate
     def test_add_space_label_success(self):
         """Test adding a label to a space."""
+        # Uses legacy API: POST /rest/api/space/{key}/label
         responses.add(
             responses.POST,
-            f"{CONFLUENCE_URL}/api/v2/spaces/10001/labels",
-            json={"name": "test-label"},
+            "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+            json=[{"name": "test-label", "prefix": "global"}],
             status=200,
         )
 
@@ -282,7 +283,7 @@ class TestSpaceLabels:
             prefix=TEST_PREFIX,
         )
 
-        result = generator.add_space_label("10001", "Test Label")
+        result = generator.add_space_label("TEST1", "Test Label")
         assert result is True
 
     @responses.activate
@@ -290,8 +291,8 @@ class TestSpaceLabels:
         """Test that labels are normalized to lowercase with hyphens."""
         responses.add(
             responses.POST,
-            f"{CONFLUENCE_URL}/api/v2/spaces/10001/labels",
-            json={"name": "my-test-label"},
+            "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+            json=[{"name": "my-test-label", "prefix": "global"}],
             status=200,
         )
 
@@ -302,7 +303,7 @@ class TestSpaceLabels:
             prefix=TEST_PREFIX,
         )
 
-        result = generator.add_space_label("10001", "My Test Label")
+        result = generator.add_space_label("TEST1", "My Test Label")
         assert result is True
 
     def test_add_space_label_dry_run(self):
@@ -315,7 +316,7 @@ class TestSpaceLabels:
             dry_run=True,
         )
 
-        result = generator.add_space_label("10001", "test-label")
+        result = generator.add_space_label("TEST1", "test-label")
         assert result is True
 
     @responses.activate
@@ -324,8 +325,8 @@ class TestSpaceLabels:
         for i in range(5):
             responses.add(
                 responses.POST,
-                f"{CONFLUENCE_URL}/api/v2/spaces/10001/labels",
-                json={"name": f"label-{i}"},
+                "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+                json=[{"name": f"label-{i}", "prefix": "global"}],
                 status=200,
             )
 
@@ -337,7 +338,7 @@ class TestSpaceLabels:
         )
 
         with patch("time.sleep"):
-            count = generator.add_space_labels(["10001"], 5)
+            count = generator.add_space_labels(["TEST1"], 5)
 
         assert count == 5
 
@@ -351,6 +352,83 @@ class TestSpaceLabels:
         )
 
         count = generator.add_space_labels([], 5)
+        assert count == 0
+
+
+class TestSpaceCategories:
+    """Tests for space category operations.
+
+    Note: Categories are implemented as team-prefixed labels via legacy API.
+    We create both regular labels and categories for backup compatibility.
+    """
+
+    @responses.activate
+    def test_add_space_category_success(self):
+        """Test adding a category to a space."""
+        # Categories use legacy API with "team" prefix
+        responses.add(
+            responses.POST,
+            "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+            json=[{"name": "test-category", "prefix": "team"}],
+            status=200,
+        )
+
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        result = generator.add_space_category("TEST1", "Test Category")
+        assert result is True
+
+    def test_add_space_category_dry_run(self):
+        """Test adding a category in dry run mode."""
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+            dry_run=True,
+        )
+
+        result = generator.add_space_category("TEST1", "Test Category")
+        assert result is True
+
+    @responses.activate
+    def test_add_space_categories_multiple(self):
+        """Test adding multiple categories to spaces."""
+        for _ in range(5):
+            responses.add(
+                responses.POST,
+                "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+                json=[{"name": "category", "prefix": "team"}],
+                status=200,
+            )
+
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            count = generator.add_space_categories(["TEST1"], 5)
+
+        assert count == 5
+
+    def test_add_space_categories_empty_list(self):
+        """Test adding categories with empty space list."""
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        count = generator.add_space_categories([], 5)
         assert count == 0
 
 
@@ -693,13 +771,14 @@ class TestAsyncSpaceOperations:
         )
 
         with aioresponses() as m:
+            # Uses legacy API
             m.post(
-                f"{CONFLUENCE_URL}/api/v2/spaces/10001/labels",
-                payload={"name": "test-label"},
+                "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+                payload=[{"name": "test-label", "prefix": "global"}],
                 status=200,
             )
 
-            result = await generator.add_space_label_async("10001", "test-label")
+            result = await generator.add_space_label_async("TEST1", "test-label")
             assert result is True
 
         await generator._close_async_session()
@@ -716,13 +795,14 @@ class TestAsyncSpaceOperations:
 
         with aioresponses() as m:
             for _ in range(5):
+                # Uses legacy API
                 m.post(
-                    f"{CONFLUENCE_URL}/api/v2/spaces/10001/labels",
-                    payload={"name": "label"},
+                    "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+                    payload=[{"name": "label", "prefix": "global"}],
                     status=200,
                 )
 
-            count = await generator.add_space_labels_async(["10001"], 5)
+            count = await generator.add_space_labels_async(["TEST1"], 5)
             assert count == 5
 
         await generator._close_async_session()
@@ -827,6 +907,83 @@ class TestAsyncSpaceOperations:
         await generator._close_async_session()
 
 
+class TestAsyncSpaceCategories:
+    """Tests for async space category operations."""
+
+    @pytest.mark.asyncio
+    async def test_add_space_category_async_success(self):
+        """Test adding a category asynchronously."""
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            # Categories use legacy API with team prefix
+            m.post(
+                "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+                payload=[{"name": "test-category", "prefix": "team"}],
+                status=200,
+            )
+
+            result = await generator.add_space_category_async("TEST1", "Test Category")
+            assert result is True
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
+    async def test_add_space_categories_async_multiple(self):
+        """Test adding multiple categories asynchronously."""
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            for _ in range(5):
+                m.post(
+                    "https://test.atlassian.net/wiki/rest/api/space/TEST1/label",
+                    payload=[{"name": "category", "prefix": "team"}],
+                    status=200,
+                )
+
+            count = await generator.add_space_categories_async(["TEST1"], 5)
+            assert count == 5
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
+    async def test_add_space_category_async_dry_run(self):
+        """Test adding a category asynchronously in dry run mode."""
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+            dry_run=True,
+        )
+
+        result = await generator.add_space_category_async("TEST1", "Test Category")
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_add_space_categories_async_empty_list(self):
+        """Test adding categories with empty space list."""
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        count = await generator.add_space_categories_async([], 5)
+        assert count == 0
+
+
 class TestAsyncDryRun:
     """Tests for async operations in dry run mode."""
 
@@ -841,7 +998,7 @@ class TestAsyncDryRun:
             dry_run=True,
         )
 
-        result = await generator.add_space_label_async("10001", "test-label")
+        result = await generator.add_space_label_async("TEST1", "test-label")
         assert result is True
 
     @pytest.mark.asyncio

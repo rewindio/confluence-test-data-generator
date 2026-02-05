@@ -65,14 +65,18 @@ class SpaceGenerator(ConfluenceAPIClient):
         if self.dry_run:
             return {"key": space_key, "id": f"dry-run-{space_key}", "name": f"Dry Run {space_key}"}
 
-        response = self._api_call("GET", f"spaces/{space_key}")
+        # v2 API requires filtering by key, not using key in URL path
+        response = self._api_call("GET", "spaces", params={"keys": space_key})
         if response:
-            result = response.json()
-            return {
-                "key": result.get("key"),
-                "id": result.get("id"),
-                "name": result.get("name"),
-            }
+            data = response.json()
+            results = data.get("results", [])
+            if results:
+                result = results[0]
+                return {
+                    "key": result.get("key"),
+                    "id": result.get("id"),
+                    "name": result.get("name"),
+                }
         return None
 
     def create_space(self, key: str, name: str, description: str = "") -> dict[str, str] | None:
@@ -90,10 +94,8 @@ class SpaceGenerator(ConfluenceAPIClient):
             "key": key,
             "name": name,
             "description": {
-                "plain": {
-                    "value": description or self.generate_random_text(5, 15),
-                    "representation": "plain",
-                }
+                "representation": "plain",
+                "value": description or self.generate_random_text(5, 15),
             },
         }
 
@@ -152,11 +154,13 @@ class SpaceGenerator(ConfluenceAPIClient):
 
     # ========== SPACE LABELS ==========
 
-    def add_space_label(self, space_id: str, label: str) -> bool:
+    def add_space_label(self, space_key: str, label: str) -> bool:
         """Add a label to a space.
 
+        Note: Uses legacy REST API as v2 doesn't support space labels.
+
         Args:
-            space_id: The space ID
+            space_key: The space key (not ID)
             label: Label to add (alphanumeric and hyphens only)
 
         Returns:
@@ -165,29 +169,31 @@ class SpaceGenerator(ConfluenceAPIClient):
         # Labels must be lowercase alphanumeric with hyphens
         clean_label = label.lower().replace(" ", "-")
 
-        label_data = {"name": clean_label}
+        # Legacy API expects array of label objects
+        label_data = [{"prefix": "global", "name": clean_label}]
 
         if self.dry_run:
-            self.logger.debug(f"DRY RUN: Would add label '{clean_label}' to space {space_id}")
+            self.logger.debug(f"DRY RUN: Would add label '{clean_label}' to space {space_key}")
             return True
 
-        response = self._api_call("POST", f"spaces/{space_id}/labels", data=label_data)
+        base_url = f"{self.confluence_url}/rest/api"
+        response = self._api_call("POST", f"space/{space_key}/label", data=label_data, base_url=base_url)
         if response:
-            self.logger.debug(f"Added label '{clean_label}' to space {space_id}")
+            self.logger.debug(f"Added label '{clean_label}' to space {space_key}")
             return True
         return False
 
-    def add_space_labels(self, space_ids: list[str], count: int) -> int:
+    def add_space_labels(self, space_keys: list[str], count: int) -> int:
         """Add labels distributed across spaces.
 
         Args:
-            space_ids: List of space IDs
+            space_keys: List of space keys
             count: Total number of labels to add
 
         Returns:
             Number of labels added
         """
-        if not space_ids:
+        if not space_keys:
             return 0
 
         self.logger.info(f"Adding {count} space labels...")
@@ -205,11 +211,11 @@ class SpaceGenerator(ConfluenceAPIClient):
 
         created = 0
         for i in range(count):
-            space_id = space_ids[i % len(space_ids)]
+            space_key = space_keys[i % len(space_keys)]
             label_type = label_types[i % len(label_types)]
             label = f"{self.prefix.lower()}-{label_type}-{i + 1}"
 
-            if self.add_space_label(space_id, label):
+            if self.add_space_label(space_key, label):
                 created += 1
 
             if (i + 1) % 50 == 0:
@@ -217,6 +223,158 @@ class SpaceGenerator(ConfluenceAPIClient):
                 time.sleep(0.2)
 
         self.logger.info(f"Space labels complete: {created} added")
+        return created
+
+    # ========== SPACE CATEGORIES ==========
+    #
+    # Note: Space labels are deprecated in Confluence Cloud, replaced by categories.
+    # However, we still create labels for backup compatibility (existing backups contain labels).
+    # Categories are created alongside labels in the same ratio.
+    #
+
+    def add_space_category(self, space_key: str, category_name: str) -> bool:
+        """Add a category to a space.
+
+        Categories replaced labels in Confluence Cloud for organizing spaces.
+        Uses the legacy REST API for content labels with category prefix.
+
+        Note: Confluence Cloud "categories" are implemented as labels with a
+        special prefix in the legacy API. The v2 API doesn't have a dedicated
+        categories endpoint.
+
+        Args:
+            space_key: The space key (not ID)
+            category_name: Category name to add
+
+        Returns:
+            True if successful
+        """
+        # Categories are implemented as labels with "team" prefix in legacy API
+        # This makes them appear in the space directory categorization
+        clean_name = category_name.lower().replace(" ", "-")
+        category_data = [{"prefix": "team", "name": clean_name}]
+
+        if self.dry_run:
+            self.logger.debug(f"DRY RUN: Would add category '{clean_name}' to space {space_key}")
+            return True
+
+        base_url = f"{self.confluence_url}/rest/api"
+        response = self._api_call("POST", f"space/{space_key}/label", data=category_data, base_url=base_url)
+        if response:
+            self.logger.debug(f"Added category '{clean_name}' to space {space_key}")
+            return True
+        return False
+
+    def add_space_categories(self, space_keys: list[str], count: int) -> int:
+        """Add categories distributed across spaces.
+
+        Args:
+            space_keys: List of space keys
+            count: Total number of categories to add
+
+        Returns:
+            Number of categories added
+        """
+        if not space_keys:
+            return 0
+
+        self.logger.info(f"Adding {count} space categories...")
+
+        category_types = [
+            "Project",
+            "Documentation",
+            "Archive",
+            "Public",
+            "Private",
+            "Team",
+            "Department",
+            "Internal",
+        ]
+
+        created = 0
+        for i in range(count):
+            space_key = space_keys[i % len(space_keys)]
+            category_type = category_types[i % len(category_types)]
+            category_name = f"{self.prefix}-{category_type}-{i + 1}"
+
+            if self.add_space_category(space_key, category_name):
+                created += 1
+
+            if (i + 1) % 50 == 0:
+                self.logger.info(f"Added {created}/{count} space categories")
+                time.sleep(0.2)
+
+        self.logger.info(f"Space categories complete: {created} added")
+        return created
+
+    async def add_space_category_async(self, space_key: str, category_name: str) -> bool:
+        """Add a category to a space asynchronously.
+
+        Args:
+            space_key: The space key (not ID)
+            category_name: Category name to add
+
+        Returns:
+            True if successful
+        """
+        clean_name = category_name.lower().replace(" ", "-")
+        category_data = [{"prefix": "team", "name": clean_name}]
+
+        if self.dry_run:
+            self.logger.debug(f"DRY RUN: Would add category '{clean_name}' to space {space_key}")
+            return True
+
+        base_url = f"{self.confluence_url}/rest/api"
+        success, _ = await self._api_call_async("POST", f"space/{space_key}/label", data=category_data, base_url=base_url)
+        return success
+
+    async def add_space_categories_async(self, space_keys: list[str], count: int) -> int:
+        """Add categories to spaces asynchronously with batching.
+
+        Args:
+            space_keys: List of space keys
+            count: Total number of categories to add
+
+        Returns:
+            Number of categories added
+        """
+        if not space_keys:
+            return 0
+
+        self.logger.info(f"Adding {count} space categories (async, concurrency: {self.concurrency})...")
+
+        category_types = [
+            "Project",
+            "Documentation",
+            "Archive",
+            "Public",
+            "Private",
+            "Team",
+            "Department",
+            "Internal",
+        ]
+
+        created = 0
+        batch_size = self.concurrency * 2
+
+        for batch_start in range(0, count, batch_size):
+            batch_end = min(batch_start + batch_size, count)
+
+            tasks = []
+            for i in range(batch_start, batch_end):
+                space_key = space_keys[i % len(space_keys)]
+                category_type = category_types[i % len(category_types)]
+                category_name = f"{self.prefix}-{category_type}-{i + 1}"
+                tasks.append(self.add_space_category_async(space_key, category_name))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if result is True:
+                    created += 1
+
+            self.logger.info(f"Added {created}/{count} space categories")
+
+        self.logger.info(f"Space categories complete: {created} added")
         return created
 
     # ========== SPACE PROPERTIES ==========
@@ -507,10 +665,8 @@ class SpaceGenerator(ConfluenceAPIClient):
             "key": key,
             "name": name,
             "description": {
-                "plain": {
-                    "value": description or self.generate_random_text(5, 15),
-                    "representation": "plain",
-                }
+                "representation": "plain",
+                "value": description or self.generate_random_text(5, 15),
             },
         }
 
@@ -558,37 +714,40 @@ class SpaceGenerator(ConfluenceAPIClient):
         self.created_spaces = created_spaces
         return created_spaces
 
-    async def add_space_label_async(self, space_id: str, label: str) -> bool:
+    async def add_space_label_async(self, space_key: str, label: str) -> bool:
         """Add a label to a space asynchronously.
 
+        Note: Uses legacy REST API as v2 doesn't support space labels.
+
         Args:
-            space_id: The space ID
+            space_key: The space key (not ID)
             label: Label to add
 
         Returns:
             True if successful
         """
         clean_label = label.lower().replace(" ", "-")
-        label_data = {"name": clean_label}
+        label_data = [{"prefix": "global", "name": clean_label}]
 
         if self.dry_run:
-            self.logger.debug(f"DRY RUN: Would add label '{clean_label}' to space {space_id}")
+            self.logger.debug(f"DRY RUN: Would add label '{clean_label}' to space {space_key}")
             return True
 
-        success, _ = await self._api_call_async("POST", f"spaces/{space_id}/labels", data=label_data)
+        base_url = f"{self.confluence_url}/rest/api"
+        success, _ = await self._api_call_async("POST", f"space/{space_key}/label", data=label_data, base_url=base_url)
         return success
 
-    async def add_space_labels_async(self, space_ids: list[str], count: int) -> int:
+    async def add_space_labels_async(self, space_keys: list[str], count: int) -> int:
         """Add labels to spaces asynchronously with batching.
 
         Args:
-            space_ids: List of space IDs
+            space_keys: List of space keys
             count: Total number of labels to add
 
         Returns:
             Number of labels added
         """
-        if not space_ids:
+        if not space_keys:
             return 0
 
         self.logger.info(f"Adding {count} space labels (async, concurrency: {self.concurrency})...")
@@ -612,10 +771,10 @@ class SpaceGenerator(ConfluenceAPIClient):
 
             tasks = []
             for i in range(batch_start, batch_end):
-                space_id = space_ids[i % len(space_ids)]
+                space_key = space_keys[i % len(space_keys)]
                 label_type = label_types[i % len(label_types)]
                 label = f"{self.prefix.lower()}-{label_type}-{i + 1}"
-                tasks.append(self.add_space_label_async(space_id, label))
+                tasks.append(self.add_space_label_async(space_key, label))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for result in results:
