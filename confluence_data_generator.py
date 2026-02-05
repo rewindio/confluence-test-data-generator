@@ -244,6 +244,160 @@ class ConfluenceDataGenerator:
         )
         return False
 
+    # ========== Sync Generation Methods ==========
+
+    def generate_sync(self, content_count: int, counts: dict[str, int]):
+        """Generate all test data synchronously.
+
+        Args:
+            content_count: Target number of content items
+            counts: Pre-calculated item counts by type
+        """
+        self._init_or_resume_checkpoint(content_count, counts, async_mode=False)
+        self._log_header(counts)
+
+        # Phase 1: Create spaces
+        spaces = self._create_spaces_sync(counts)
+
+        if not spaces:
+            self.logger.error("No spaces created, cannot continue")
+            return
+
+        # Phase 2: Create space-related items (labels, properties, permissions)
+        if not self.content_only:
+            self._create_space_items_sync(spaces, counts)
+
+        # Phase 3: Create pages (NOT YET IMPLEMENTED)
+        # pages = self._create_pages_sync(spaces, counts)
+
+        # Phase 4: Create page-related items (NOT YET IMPLEMENTED)
+        # self._create_page_items_sync(pages, counts)
+
+        # Phase 5: Create blogposts (NOT YET IMPLEMENTED)
+        # blogposts = self._create_blogposts_sync(spaces, counts)
+
+        # Phase 6: Create blogpost-related items (NOT YET IMPLEMENTED)
+        # self._create_blogpost_items_sync(blogposts, counts)
+
+        # Phase 7: Create attachments (NOT YET IMPLEMENTED)
+        # Phase 8: Create comments (NOT YET IMPLEMENTED)
+        # Phase 9: Create templates (NOT YET IMPLEMENTED)
+
+        self._log_footer()
+
+    def _create_spaces_sync(self, counts: dict[str, int]) -> list[dict]:
+        """Create spaces synchronously.
+
+        Returns list of created space dicts with keys: key, id, name
+        """
+        if self._is_phase_complete("spaces"):
+            # Restore spaces from checkpoint
+            if self.checkpoint and self.checkpoint.checkpoint:
+                space_keys = self.checkpoint.checkpoint.space_keys
+                space_ids = self.checkpoint.checkpoint.space_ids
+                if space_keys and space_ids:
+                    self.logger.info(f"Restored {len(space_keys)} spaces from checkpoint")
+                    return [{"key": key, "id": space_id} for key, space_id in zip(space_keys, space_ids, strict=True)]
+            return []
+
+        self._start_phase("spaces")
+
+        # Get space count - use space_v2 or space
+        num_spaces = counts.get("space_v2", counts.get("space", 1))
+        remaining = self._get_remaining_count("spaces", num_spaces)
+
+        if remaining <= 0:
+            self._complete_phase("spaces")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} spaces...")
+        self.benchmark.start_phase("spaces", remaining)
+
+        spaces = self.space_gen.create_spaces(remaining)
+
+        self.benchmark.end_phase("spaces", len(spaces))
+
+        # Update checkpoint with created spaces
+        if self.checkpoint and spaces:
+            for space in spaces:
+                self.checkpoint.add_space(space["key"], space["id"])
+
+        self._complete_phase("spaces")
+
+        self.logger.info(f"Created {len(spaces)} spaces")
+        return spaces
+
+    def _create_space_items_sync(self, spaces: list[dict], counts: dict[str, int]):
+        """Create space-related items (labels, properties, permissions) synchronously."""
+        space_keys = [s["key"] for s in spaces]
+
+        # Space labels (and categories)
+        if not self._is_phase_complete("space_labels"):
+            num_labels = counts.get("space_label_v2", 0)
+            if num_labels > 0:
+                self._start_phase("space_labels")
+                labels_per_space = max(1, num_labels // len(spaces))
+                total_labels = labels_per_space * len(spaces)
+
+                self.logger.info(f"\nCreating {total_labels} space labels ({labels_per_space} per space)...")
+                self.benchmark.start_phase("space_labels", total_labels)
+
+                created = 0
+                for space_key in space_keys:
+                    result = self.space_gen.add_space_labels(space_key, labels_per_space)
+                    created += result
+
+                self.benchmark.end_phase("space_labels", created)
+                self._complete_phase("space_labels")
+                self.logger.info(f"Created {created} space labels")
+
+        # Space properties
+        if not self._is_phase_complete("space_properties"):
+            num_props = counts.get("space_property_v2", 0)
+            if num_props > 0:
+                self._start_phase("space_properties")
+                props_per_space = max(1, num_props // len(spaces))
+                total_props = props_per_space * len(spaces)
+
+                self.logger.info(f"\nCreating {total_props} space properties ({props_per_space} per space)...")
+                self.benchmark.start_phase("space_properties", total_props)
+
+                created = 0
+                for space_key in space_keys:
+                    result = self.space_gen.add_space_properties(space_key, props_per_space)
+                    created += result
+
+                self.benchmark.end_phase("space_properties", created)
+                self._complete_phase("space_properties")
+                self.logger.info(f"Created {created} space properties")
+
+        # Space permissions - requires user account IDs
+        # Skip for now as it requires user lookup
+        # if not self._is_phase_complete("space_permissions"):
+        #     ...
+
+        # Space look and feel
+        if not self._is_phase_complete("space_look_and_feel"):
+            num_laf = counts.get("space_look_and_feel_setting", 0)
+            if num_laf > 0:
+                self._start_phase("space_look_and_feel")
+                # Apply look and feel to spaces that need it
+                spaces_to_update = min(num_laf, len(spaces))
+
+                self.logger.info(f"\nUpdating look and feel for {spaces_to_update} spaces...")
+                self.benchmark.start_phase("space_look_and_feel", spaces_to_update)
+
+                created = 0
+                for space in spaces[:spaces_to_update]:
+                    homepage_config = {"welcomeMessage": f"Welcome to {space.get('name', space['key'])}"}
+                    success = self.space_gen.set_space_look_and_feel(space["key"], homepage_config)
+                    if success:
+                        created += 1
+
+                self.benchmark.end_phase("space_look_and_feel", created)
+                self._complete_phase("space_look_and_feel")
+                self.logger.info(f"Updated {created} space look and feel settings")
+
 
 def setup_logging(prefix: str, verbose: bool = False) -> str:
     """Setup logging to console and file.
