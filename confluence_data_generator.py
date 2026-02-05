@@ -21,6 +21,7 @@ from dotenv import load_dotenv
 
 from generators.benchmark import BenchmarkTracker
 from generators.checkpoint import CheckpointManager
+from generators.pages import PageGenerator
 from generators.spaces import SpaceGenerator
 
 
@@ -164,8 +165,10 @@ class ConfluenceDataGenerator:
         # Initialize space generator
         self.space_gen = SpaceGenerator(prefix=self.prefix, **common_args)
 
+        # Initialize page generator
+        self.page_gen = PageGenerator(prefix=self.prefix, **common_args)
+
         # Future generators will be added here as they're implemented:
-        # self.page_gen = PageGenerator(prefix=self.prefix, **common_args)
         # self.blogpost_gen = BlogPostGenerator(prefix=self.prefix, **common_args)
         # self.attachment_gen = AttachmentGenerator(prefix=self.prefix, **common_args)
         # self.comment_gen = CommentGenerator(prefix=self.prefix, **common_args)
@@ -272,11 +275,12 @@ class ConfluenceDataGenerator:
         if not self.content_only:
             self._create_space_items_sync(spaces, counts)
 
-        # Phase 3: Create pages (NOT YET IMPLEMENTED)
-        # pages = self._create_pages_sync(spaces, counts)
+        # Phase 3: Create pages
+        pages = self._create_pages_sync(spaces, counts)
 
-        # Phase 4: Create page-related items (NOT YET IMPLEMENTED)
-        # self._create_page_items_sync(pages, counts)
+        # Phase 4: Create page-related items
+        if pages and not self.content_only:
+            self._create_page_items_sync(pages, counts)
 
         # Phase 5: Create blogposts (NOT YET IMPLEMENTED)
         # blogposts = self._create_blogposts_sync(spaces, counts)
@@ -388,6 +392,102 @@ class ConfluenceDataGenerator:
             self._complete_phase("space_look_and_feel")
             self.logger.info("Skipping space look and feel (not supported in Confluence Cloud)")
 
+    def _create_pages_sync(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
+        """Create pages synchronously.
+
+        Returns list of created page dicts with keys: id, title, spaceId
+        """
+        if self._is_phase_complete("pages"):
+            # Restore pages from checkpoint
+            if self.checkpoint and self.checkpoint.checkpoint:
+                page_ids = self.checkpoint.checkpoint.page_ids
+                if page_ids:
+                    self.logger.info(f"Restored {len(page_ids)} pages from checkpoint")
+                    return [{"id": pid, "title": f"Page {pid}"} for pid in page_ids]
+            return []
+
+        self._start_phase("pages")
+
+        num_pages = counts.get("page_v2", counts.get("page", 0))
+        remaining = self._get_remaining_count("pages", num_pages)
+
+        if remaining <= 0:
+            self._complete_phase("pages")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} pages...")
+        self.benchmark.start_phase("pages", remaining)
+
+        pages = self.page_gen.create_pages(spaces, remaining)
+
+        self.benchmark.end_phase("pages", len(pages))
+
+        # Update checkpoint with created pages (grouped by space)
+        if self.checkpoint and pages:
+            pages_by_space: dict[str, list[str]] = {}
+            for page in pages:
+                space_key = page.get("spaceId", "unknown")
+                pages_by_space.setdefault(space_key, []).append(page["id"])
+            for space_key, page_ids in pages_by_space.items():
+                self.checkpoint.add_page_ids(page_ids, space_key)
+            self.checkpoint.save()
+
+        self._complete_phase("pages")
+
+        self.logger.info(f"Created {len(pages)} pages")
+        return pages
+
+    def _create_page_items_sync(self, pages: list[dict], counts: dict[str, int]):
+        """Create page-related items (labels, properties, restrictions, versions) synchronously."""
+        page_ids = [p["id"] for p in pages]
+
+        # Page labels
+        if not self._is_phase_complete("page_labels"):
+            num_labels = counts.get("page_label_v2", 0)
+            if num_labels > 0:
+                self._start_phase("page_labels")
+                self.logger.info(f"\nCreating {num_labels} page labels...")
+                self.benchmark.start_phase("page_labels", num_labels)
+
+                created = self.page_gen.add_page_labels(page_ids, num_labels)
+
+                self.benchmark.end_phase("page_labels", created)
+                self._complete_phase("page_labels")
+                self.logger.info(f"Created {created} page labels")
+
+        # Page properties
+        if not self._is_phase_complete("page_properties"):
+            num_props = counts.get("page_property_v2", 0)
+            if num_props > 0:
+                self._start_phase("page_properties")
+                self.logger.info(f"\nCreating {num_props} page properties...")
+                self.benchmark.start_phase("page_properties", num_props)
+
+                created = self.page_gen.set_page_properties(page_ids, num_props)
+
+                self.benchmark.end_phase("page_properties", created)
+                self._complete_phase("page_properties")
+                self.logger.info(f"Created {created} page properties")
+
+        # Page versions
+        if not self._is_phase_complete("page_versions"):
+            num_versions = counts.get("page_version_v2", 0)
+            if num_versions > 0:
+                self._start_phase("page_versions")
+                self.logger.info(f"\nCreating {num_versions} page versions...")
+                self.benchmark.start_phase("page_versions", num_versions)
+
+                created = self.page_gen.create_page_versions(pages, num_versions)
+
+                self.benchmark.end_phase("page_versions", created)
+                self._complete_phase("page_versions")
+                self.logger.info(f"Created {created} page versions")
+
+        # Page restrictions - requires user account IDs
+        # Skip for now as it requires user lookup
+        # if not self._is_phase_complete("page_restrictions"):
+        #     ...
+
     # ========== Async Generation Methods ==========
 
     async def generate_async(self, content_count: int, counts: dict[str, int]):
@@ -412,11 +512,12 @@ class ConfluenceDataGenerator:
             if not self.content_only:
                 await self._create_space_items_async(spaces, counts)
 
-            # Phase 3: Create pages (NOT YET IMPLEMENTED)
-            # pages = await self._create_pages_async(spaces, counts)
+            # Phase 3: Create pages
+            pages = await self._create_pages_async(spaces, counts)
 
-            # Phase 4: Create page-related items (NOT YET IMPLEMENTED)
-            # await self._create_page_items_async(pages, counts)
+            # Phase 4: Create page-related items
+            if pages and not self.content_only:
+                await self._create_page_items_async(pages, counts)
 
             # Phase 5: Create blogposts (NOT YET IMPLEMENTED)
             # blogposts = await self._create_blogposts_async(spaces, counts)
@@ -430,8 +531,9 @@ class ConfluenceDataGenerator:
 
             self._log_footer()
         finally:
-            # Always close async session
+            # Always close async sessions
             await self.space_gen._close_async_session()
+            await self.page_gen._close_async_session()
 
     async def _create_spaces_async(self, counts: dict[str, int]) -> list[dict]:
         """Create spaces asynchronously.
@@ -536,6 +638,96 @@ class ConfluenceDataGenerator:
         if not self._is_phase_complete("space_look_and_feel"):
             self._complete_phase("space_look_and_feel")
             self.logger.info("Skipping space look and feel (not supported in Confluence Cloud)")
+
+    async def _create_pages_async(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
+        """Create pages asynchronously.
+
+        Returns list of created page dicts with keys: id, title, spaceId
+        """
+        if self._is_phase_complete("pages"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                page_ids = self.checkpoint.checkpoint.page_ids
+                if page_ids:
+                    self.logger.info(f"Restored {len(page_ids)} pages from checkpoint")
+                    return [{"id": pid, "title": f"Page {pid}"} for pid in page_ids]
+            return []
+
+        self._start_phase("pages")
+
+        num_pages = counts.get("page_v2", counts.get("page", 0))
+        remaining = self._get_remaining_count("pages", num_pages)
+
+        if remaining <= 0:
+            self._complete_phase("pages")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} pages (async)...")
+        self.benchmark.start_phase("pages", remaining)
+
+        pages = await self.page_gen.create_pages_async(spaces, remaining)
+
+        self.benchmark.end_phase("pages", len(pages))
+
+        # Update checkpoint with created pages (grouped by space)
+        if self.checkpoint and pages:
+            pages_by_space: dict[str, list[str]] = {}
+            for page in pages:
+                space_key = page.get("spaceId", "unknown")
+                pages_by_space.setdefault(space_key, []).append(page["id"])
+            for space_key, page_ids in pages_by_space.items():
+                self.checkpoint.add_page_ids(page_ids, space_key)
+            self.checkpoint.save()
+
+        self._complete_phase("pages")
+
+        self.logger.info(f"Created {len(pages)} pages")
+        return pages
+
+    async def _create_page_items_async(self, pages: list[dict], counts: dict[str, int]):
+        """Create page-related items asynchronously."""
+        page_ids = [p["id"] for p in pages]
+
+        # Page labels
+        if not self._is_phase_complete("page_labels"):
+            num_labels = counts.get("page_label_v2", 0)
+            if num_labels > 0:
+                self._start_phase("page_labels")
+                self.logger.info(f"\nCreating {num_labels} page labels (async)...")
+                self.benchmark.start_phase("page_labels", num_labels)
+
+                created = await self.page_gen.add_page_labels_async(page_ids, num_labels)
+
+                self.benchmark.end_phase("page_labels", created)
+                self._complete_phase("page_labels")
+                self.logger.info(f"Created {created} page labels")
+
+        # Page properties
+        if not self._is_phase_complete("page_properties"):
+            num_props = counts.get("page_property_v2", 0)
+            if num_props > 0:
+                self._start_phase("page_properties")
+                self.logger.info(f"\nCreating {num_props} page properties (async)...")
+                self.benchmark.start_phase("page_properties", num_props)
+
+                created = await self.page_gen.set_page_properties_async(page_ids, num_props)
+
+                self.benchmark.end_phase("page_properties", created)
+                self._complete_phase("page_properties")
+                self.logger.info(f"Created {created} page properties")
+
+        # Page versions
+        if not self._is_phase_complete("page_versions"):
+            num_versions = counts.get("page_version_v2", 0)
+            if num_versions > 0:
+                self._start_phase("page_versions")
+                self.logger.info(f"\nCreating {num_versions} page versions (async)...")
+                self.benchmark.start_phase("page_versions", num_versions)
+
+                created = await self.page_gen.create_page_versions_async(pages, num_versions)
+
+                self.benchmark.end_phase("page_versions", created)
+                self._complete_phase("page_versions")
+                self.logger.info(f"Created {created} page versions")
 
 
 def setup_logging(prefix: str, verbose: bool = False) -> str:
