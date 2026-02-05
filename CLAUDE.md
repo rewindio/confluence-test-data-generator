@@ -277,20 +277,20 @@ Generation follows this order (defined in `CheckpointManager.PHASE_ORDER`):
 ### Running Tests
 
 ```bash
-# Install dependencies
-pip install -r requirements-dev.txt
+# Install dependencies (use venv)
+.venv/bin/pip install -r requirements-dev.txt
 
 # Run all tests in parallel
-pytest -n auto
+.venv/bin/pytest -n auto
 
 # Run with coverage report
-pytest -n auto --cov=generators --cov-report=term-missing
+.venv/bin/pytest -n auto --cov=generators --cov-report=term-missing
 
 # Run specific test file
-pytest tests/test_checkpoint.py -v
+.venv/bin/pytest tests/test_checkpoint.py -v
 
 # Run tests matching a pattern
-pytest -k "test_dry_run"
+.venv/bin/pytest -k "test_dry_run"
 ```
 
 ### Test Connectivity
@@ -298,7 +298,7 @@ pytest -k "test_dry_run"
 Before running the full generator, verify API credentials:
 
 ```bash
-python test_connectivity.py
+.venv/bin/python test_connectivity.py
 ```
 
 ### Mocking Strategy
@@ -373,6 +373,44 @@ Based on [Atlassian's sizing guide](https://confluence.atlassian.com/enterprise/
 - **Minimum**: Python 3.12
 - **Target**: `py312` (configured in ruff.toml)
 
+### Running Python Tools (IMPORTANT)
+
+This project uses a virtual environment. **Do NOT use system `python`, `pip`, or `ruff`** - they won't work due to Homebrew's PEP 668 restrictions.
+
+**Option 1: Use venv binaries directly (preferred)**
+```bash
+.venv/bin/python script.py
+.venv/bin/ruff check .
+.venv/bin/ruff format .
+.venv/bin/pytest
+```
+
+**Option 2: Use uvx for one-off tool runs**
+```bash
+uvx ruff check .
+uvx ruff format .
+uvx pytest
+```
+
+**Option 3: Activate the venv first**
+```bash
+source .venv/bin/activate
+python script.py
+ruff check .
+pytest
+```
+
+**Quick reference:**
+| Task | Command |
+|------|---------|
+| Run linter | `.venv/bin/ruff check .` |
+| Fix lint issues | `.venv/bin/ruff check --fix .` |
+| Check formatting | `.venv/bin/ruff format --check .` |
+| Fix formatting | `.venv/bin/ruff format .` |
+| Run tests | `.venv/bin/pytest -n auto` |
+| Run single test | `.venv/bin/pytest tests/test_file.py -v` |
+| Install deps | `.venv/bin/pip install -r requirements.txt` |
+
 ---
 
 ## Workflow
@@ -383,13 +421,16 @@ For Python projects, prefer running quick validation tests or API calls after fi
 
 ```bash
 # Quick unit test validation
-pytest tests/test_specific.py -v -k "test_name"
+.venv/bin/pytest tests/test_specific.py -v -k "test_name"
 
 # Quick syntax/import check
-python -c "from generators.spaces import SpaceGenerator; print('OK')"
+.venv/bin/python -c "from generators.spaces import SpaceGenerator; print('OK')"
 
 # Quick API validation (if credentials available)
-python test_connectivity.py
+.venv/bin/python test_connectivity.py
+
+# Quick lint check
+.venv/bin/ruff check . && .venv/bin/ruff format --check .
 ```
 
 This catches issues early—before they're committed and before CI runs.
