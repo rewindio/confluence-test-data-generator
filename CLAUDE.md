@@ -139,6 +139,11 @@ class CheckpointManager:
 
 ### API Integration Gotchas
 
+**Verify endpoints exist before implementing.** Confluence v2/v3 APIs are incomplete—many operations documented for v1 don't exist in newer APIs. Before writing code for a new API call:
+1. Check the [Confluence Cloud REST API docs](https://developer.atlassian.com/cloud/confluence/rest/v2/intro/)
+2. Test the endpoint manually with `curl` or Postman
+3. Be prepared to fall back to v1 (`/rest/api/`) if v2 (`/api/v2/`) doesn't support the operation
+
 When fixing Atlassian/Confluence API issues, always verify **both** the endpoint AND the resource naming conventions. Atlassian Cloud uses site-specific naming that differs from documentation examples:
 
 - **Group names**: Cloud uses `confluence-users-{site-name}` not just `confluence-users`
