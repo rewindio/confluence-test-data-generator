@@ -416,11 +416,16 @@ class ConfluenceDataGenerator:
 
         self.benchmark.end_phase("pages", len(pages))
 
-        # Update checkpoint with created pages (grouped by space)
+        # Update checkpoint with created pages (grouped by space key, not space ID)
         if self.checkpoint and pages:
+            space_id_to_key: dict[str, str] = {
+                space["id"]: space["key"] for space in spaces if "id" in space and "key" in space
+            }
+
             pages_by_space: dict[str, list[str]] = {}
             for page in pages:
-                space_key = page.get("spaceId", "unknown")
+                space_id = page.get("spaceId")
+                space_key = space_id_to_key.get(space_id, "unknown")
                 pages_by_space.setdefault(space_key, []).append(page["id"])
             for space_key, page_ids in pages_by_space.items():
                 self.checkpoint.add_page_ids(page_ids, space_key)
@@ -657,11 +662,16 @@ class ConfluenceDataGenerator:
 
         self.benchmark.end_phase("pages", len(pages))
 
-        # Update checkpoint with created pages (grouped by space)
+        # Update checkpoint with created pages (grouped by space key, not space ID)
         if self.checkpoint and pages:
+            space_id_to_key: dict[str, str] = {
+                space["id"]: space["key"] for space in spaces if "id" in space and "key" in space
+            }
+
             pages_by_space: dict[str, list[str]] = {}
             for page in pages:
-                space_key = page.get("spaceId", "unknown")
+                space_id = page.get("spaceId")
+                space_key = space_id_to_key.get(space_id, "unknown")
                 pages_by_space.setdefault(space_key, []).append(page["id"])
             for space_key, page_ids in pages_by_space.items():
                 self.checkpoint.add_page_ids(page_ids, space_key)
