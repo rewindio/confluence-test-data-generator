@@ -807,9 +807,39 @@ Checkpointing:
         logging.info("Exiting after showing planned counts")
         return
 
-    # TODO: Initialize ConfluenceDataGenerator and run generation
-    logging.info("\n[NOT IMPLEMENTED] Data generation not yet implemented")
-    logging.info("This CLI is ready for testing - generation methods coming in Tasks 14-17")
+    # Initialize the generator
+    generator = ConfluenceDataGenerator(
+        confluence_url=args.url,
+        email=args.email,
+        api_token=api_token,
+        prefix=args.prefix,
+        size_bucket=args.size,
+        dry_run=args.dry_run,
+        concurrency=args.concurrency,
+        request_delay=args.request_delay,
+        content_only=args.content_only,
+        checkpoint_manager=checkpoint_manager,
+    )
+
+    # Run generation
+    try:
+        if args.no_async:
+            logging.info("\nStarting synchronous generation...")
+            generator.generate_sync(args.count, counts)
+        else:
+            logging.info("\nStarting asynchronous generation...")
+            asyncio.run(generator.generate_async(args.count, counts))
+        logging.info("\nGeneration complete!")
+    except KeyboardInterrupt:
+        logging.warning("\nGeneration interrupted by user")
+        if checkpoint_manager:
+            logging.info("Progress saved to checkpoint file")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"\nGeneration failed: {e}")
+        if args.verbose:
+            logging.exception("Full traceback:")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
