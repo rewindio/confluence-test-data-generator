@@ -459,9 +459,12 @@ Before asking the user to test new functionality, run integration tests yourself
 4. **Clean up after successful test:**
    ```bash
    source .env
-   curl -u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" -X DELETE \
+   # Delete the space (moves to trash - async operation)
+   curl -s -u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" -X DELETE \
        "$CONFLUENCE_URL/rest/api/space/AITEST1"
    ```
+
+   **To permanently purge from trash:** Go to Confluence Admin → Data Management → Trashed Spaces → Permanently Delete. There is no REST API to purge trashed spaces in Confluence Cloud.
 
 This catches issues like wrong method names, incorrect API parameters, and missing async methods before the user wastes time debugging.
 
