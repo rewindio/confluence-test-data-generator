@@ -47,7 +47,13 @@ def load_multipliers_from_csv(csv_path: str | None = None) -> dict[str, dict[str
                     try:
                         multipliers[size_key][item_type] = float(value)
                     except ValueError:
-                        pass
+                        logging.warning(
+                            "Invalid multiplier '%s' for item type '%s' and size bucket '%s' in CSV '%s'; skipping value",
+                            value,
+                            item_type,
+                            size_key,
+                            csv_path,
+                        )
 
     return multipliers
 
@@ -343,14 +349,14 @@ class ConfluenceDataGenerator:
 
                 created = 0
                 for space_key in space_keys:
-                    result = self.space_gen.add_space_labels(space_key, labels_per_space)
+                    result = self.space_gen.add_space_labels([space_key], labels_per_space)
                     created += result
 
                 self.benchmark.end_phase("space_labels", created)
                 self._complete_phase("space_labels")
                 self.logger.info(f"Created {created} space labels")
 
-        # Space properties
+        # Space properties - uses space IDs not keys
         if not self._is_phase_complete("space_properties"):
             num_props = counts.get("space_property_v2", 0)
             if num_props > 0:
@@ -362,8 +368,9 @@ class ConfluenceDataGenerator:
                 self.benchmark.start_phase("space_properties", total_props)
 
                 created = 0
-                for space_key in space_keys:
-                    result = self.space_gen.add_space_properties(space_key, props_per_space)
+                space_ids = [s["id"] for s in spaces]
+                for space_id in space_ids:
+                    result = self.space_gen.set_space_properties([space_id], props_per_space)
                     created += result
 
                 self.benchmark.end_phase("space_properties", created)
@@ -487,6 +494,11 @@ class ConfluenceDataGenerator:
                 tasks = [self.space_gen.add_space_labels_async([key], labels_per_space) for key in space_keys]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
+                # Log any exceptions from failed tasks
+                for r in results:
+                    if isinstance(r, Exception):
+                        self.logger.warning(f"Space label task failed: {r}")
+
                 created = sum(r for r in results if isinstance(r, int))
 
                 self.benchmark.end_phase("space_labels", created)
@@ -508,6 +520,11 @@ class ConfluenceDataGenerator:
                 space_ids = [s["id"] for s in spaces]
                 tasks = [self.space_gen.set_space_properties_async([sid], props_per_space) for sid in space_ids]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Log any exceptions from failed tasks
+                for r in results:
+                    if isinstance(r, Exception):
+                        self.logger.warning(f"Space property task failed: {r}")
 
                 created = sum(r for r in results if isinstance(r, int))
 
@@ -634,10 +651,6 @@ Checkpointing:
 
     # Optional arguments
     parser.add_argument(
-        "--token",
-        help="Confluence API token (or set CONFLUENCE_API_TOKEN in .env file or env var)",
-    )
-    parser.add_argument(
         "--size",
         choices=["small", "medium", "large"],
         default="small",
@@ -703,12 +716,11 @@ Checkpointing:
     # Load environment variables from .env file
     load_dotenv()
 
-    # Get API token
-    api_token = args.token or os.environ.get("CONFLUENCE_API_TOKEN")
+    # Get API token from environment variable or .env file
+    api_token = os.environ.get("CONFLUENCE_API_TOKEN")
     if not api_token:
         print(
-            "Error: Confluence API token required. "
-            "Use --token, set CONFLUENCE_API_TOKEN in .env file, or set as environment variable",
+            "Error: Confluence API token required. Set CONFLUENCE_API_TOKEN in .env file or as environment variable.",
             file=sys.stderr,
         )
         sys.exit(1)
