@@ -428,43 +428,36 @@ Never continue working on the old feature branch after its PR is merged.
 
 Before asking the user to test new functionality, run integration tests yourself using credentials from `.env`:
 
-1. **Run the tool with minimal data** (uses CONFLUENCE_URL and CONFLUENCE_EMAIL from .env):
-   ```bash
-   .venv/bin/python confluence_data_generator.py \
-       --url $CONFLUENCE_URL \
-       --email $CONFLUENCE_EMAIL \
-       --count 1 \
-       --spaces 1 \
-       --prefix AITEST
-   ```
-
-   Or source the .env file first:
+1. **Run the tool with minimal data** using a unique prefix (trashed spaces retain their keys):
    ```bash
    source .env
+   # Use timestamp-based prefix to avoid conflicts with trashed spaces
+   TEST_PREFIX="AITEST$(date +%H%M%S)"
    .venv/bin/python confluence_data_generator.py \
        --url $CONFLUENCE_URL \
        --email $CONFLUENCE_EMAIL \
        --count 1 \
        --spaces 1 \
-       --prefix AITEST
+       --prefix $TEST_PREFIX
    ```
 
 2. **Check output for errors** - any API failures, missing methods, wrong parameters
 
 3. **If errors occur:**
    - Fix the code
-   - Clean up test data via API (delete spaces, etc.)
-   - Re-run until successful
+   - Delete the test space via API (moves to trash)
+   - Re-run with the same or new prefix
 
 4. **Clean up after successful test:**
    ```bash
    source .env
    # Delete the space (moves to trash - async operation)
+   # Replace AITEST1234561 with actual space key from output
    curl -s -u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" -X DELETE \
-       "$CONFLUENCE_URL/rest/api/space/AITEST1"
+       "$CONFLUENCE_URL/rest/api/space/${TEST_PREFIX}1"
    ```
 
-   **To permanently purge from trash:** Go to Confluence Admin → Data Management → Trashed Spaces → Permanently Delete. There is no REST API to purge trashed spaces in Confluence Cloud.
+   **Note:** Purging from trash requires admin UI (Admin → Data Management → Trashed Spaces). There is no REST API for this in Confluence Cloud.
 
 This catches issues like wrong method names, incorrect API parameters, and missing async methods before the user wastes time debugging.
 
