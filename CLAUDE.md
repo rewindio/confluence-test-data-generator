@@ -24,6 +24,14 @@
 
 ```
 .
+├── .ai/                          # AI-driven development resources
+│   ├── README.md                # Directory overview and active plans
+│   ├── plans/                   # Implementation plans by initiative
+│   │   └── confluence-test-data-generator/
+│   │       ├── PLAN.md          # Implementation plan
+│   │       └── DESIGN.md        # Design document
+│   └── guides/
+│       └── AI_IMPLEMENTATION_GUIDE.md
 ├── confluence_data_generator.py  # Main orchestrator (TODO)
 ├── confluence_user_generator.py  # Standalone user/group generator (DONE)
 ├── generators/                   # Modular generators package
@@ -73,7 +81,7 @@
 
 Before marking any task complete, verify documentation is up to date:
 
-**Internal Documentation** (in `docs/plans/`):
+**Internal Documentation** (in `.ai/plans/`):
 - [ ] Implementation plan status updated (mark tasks as COMPLETED)
 - [ ] Any API learnings or gotchas documented
 - [ ] Architecture decisions captured
@@ -549,7 +557,7 @@ gh pr comment {pr_number} --body "Your comment here"
 
 Always check documentation before marking complete:
 
-1. **Internal docs**: Update `docs/plans/` implementation plan (mark status, add learnings)
+1. **Internal docs**: Update `.ai/plans/` implementation plan (mark status, add learnings)
 2. **README.md**: Add/update usage examples, CLI options, feature descriptions
 3. **CLAUDE.md**: Update file structure, add patterns/gotchas, update API endpoints
 4. **Code docs**: Ensure CLI `--help` text is accurate and helpful
