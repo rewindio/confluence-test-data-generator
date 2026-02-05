@@ -483,6 +483,42 @@ This catches issues early—before they're committed and before CI runs.
 
 ---
 
+## GitHub CLI (gh) Operations
+
+### Replying to PR Review Comments
+
+When replying to individual review comments (code comments, not general PR comments), use:
+
+```bash
+# Correct format - note the -X POST and leading /
+gh api -X POST /repos/{owner}/{repo}/pulls/{pr_number}/comments/{comment_id}/replies \
+    -f body="Your reply here"
+```
+
+**Common mistakes:**
+- Missing `-X POST` (defaults to GET, returns 404)
+- Missing leading `/` in the path
+- Using `repos/` instead of `/repos/`
+
+### Viewing PR Comments
+
+```bash
+# Get all review comments (code comments) with their IDs
+gh api repos/{owner}/{repo}/pulls/{pr_number}/comments \
+    --jq '.[] | "ID: \(.id) | Path: \(.path):\(.line) | Body: \(.body | split("\n")[0])"'
+
+# Get general PR comments (not code comments)
+gh pr view {pr_number} --comments
+```
+
+### Adding a General PR Comment
+
+```bash
+gh pr comment {pr_number} --body "Your comment here"
+```
+
+---
+
 ## Quick Reference for Common Tasks
 
 ### "Add support for [new content type]"
