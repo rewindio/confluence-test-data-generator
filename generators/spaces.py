@@ -325,7 +325,9 @@ class SpaceGenerator(ConfluenceAPIClient):
             return True
 
         base_url = f"{self.confluence_url}/rest/api"
-        success, _ = await self._api_call_async("POST", f"space/{space_key}/label", data=category_data, base_url=base_url)
+        success, _ = await self._api_call_async(
+            "POST", f"space/{space_key}/label", data=category_data, base_url=base_url
+        )
         return success
 
     async def add_space_categories_async(self, space_keys: list[str], count: int) -> int:
