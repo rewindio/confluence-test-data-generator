@@ -211,8 +211,10 @@ class ConfluenceDataGenerator:
         """Get remaining items to create for a phase."""
         if not self.checkpoint or not self.checkpoint.checkpoint:
             return total
-        created = self.checkpoint.get_phase_count(phase)
-        return max(0, total - created)
+        progress = self.checkpoint.get_phase_progress(phase)
+        if progress:
+            return max(0, total - progress.created_count)
+        return total
 
     def _init_or_resume_checkpoint(self, content_count: int, counts: dict[str, int], async_mode: bool) -> bool:
         """Initialize checkpoint for new run or prepare for resume.
