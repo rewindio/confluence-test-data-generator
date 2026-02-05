@@ -182,12 +182,8 @@ class ConfluenceDataGenerator:
 
     def _log_footer(self):
         """Log summary footer with benchmark results."""
-        self.logger.info("")
-        self.logger.info("=" * 60)
-        self.logger.info("GENERATION COMPLETE")
-        self.logger.info("=" * 60)
+        # get_summary_report() includes its own header/dividers
         self.logger.info(self.benchmark.get_summary_report())
-        self.logger.info("=" * 60)
 
     # ========== Checkpoint Helper Methods ==========
 
