@@ -386,12 +386,6 @@ class ConfluenceDataGenerator:
         # if not self._is_phase_complete("space_permissions"):
         #     ...
 
-        # Space look and feel - SKIPPED: Confluence Cloud returns 405 for this API
-        # The /rest/api/settings/lookandfeel/custom endpoint is not available in Cloud
-        if not self._is_phase_complete("space_look_and_feel"):
-            self._complete_phase("space_look_and_feel")
-            self.logger.info("Skipping space look and feel (not supported in Confluence Cloud)")
-
     def _create_pages_sync(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
         """Create pages synchronously.
 
@@ -633,11 +627,6 @@ class ConfluenceDataGenerator:
                 self.benchmark.end_phase("space_properties", created)
                 self._complete_phase("space_properties")
                 self.logger.info(f"Created {created} space properties")
-
-        # Space look and feel - SKIPPED: Confluence Cloud returns 405 for this API
-        if not self._is_phase_complete("space_look_and_feel"):
-            self._complete_phase("space_look_and_feel")
-            self.logger.info("Skipping space look and feel (not supported in Confluence Cloud)")
 
     async def _create_pages_async(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
         """Create pages asynchronously.
