@@ -415,6 +415,15 @@ pytest
 
 ## Workflow
 
+### After PR Merge
+
+After the user confirms a PR is merged, always:
+1. `git checkout main`
+2. `git pull origin main`
+3. Create a new feature branch for the next task
+
+Never continue working on the old feature branch after its PR is merged.
+
 ### Validate Fixes Before Committing
 
 For Python projects, prefer running quick validation tests or API calls after fixes rather than assuming the change works:
