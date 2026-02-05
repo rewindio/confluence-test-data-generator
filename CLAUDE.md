@@ -424,6 +424,34 @@ After the user confirms a PR is merged, always:
 
 Never continue working on the old feature branch after its PR is merged.
 
+### Integration Testing Before User Review
+
+Before asking the user to test new functionality, run integration tests yourself:
+
+1. **Run the tool with minimal data:**
+   ```bash
+   .venv/bin/python confluence_data_generator.py \
+       --url https://rewind-jira-scale-testing.atlassian.net/wiki \
+       --email dave.north+jira-dev@rewind.io \
+       --count 1 \
+       --spaces 1 \
+       --prefix AITEST
+   ```
+
+2. **Check output for errors** - any API failures, missing methods, wrong parameters
+
+3. **If errors occur:**
+   - Fix the code
+   - Clean up test data via API (delete spaces, etc.)
+   - Re-run until successful
+
+4. **Clean up after successful test:**
+   ```bash
+   # Delete test spaces via API or note for user to clean up
+   ```
+
+This catches issues like wrong method names, incorrect API parameters, and missing async methods before the user wastes time debugging.
+
 ### Validate Fixes Before Committing
 
 For Python projects, prefer running quick validation tests or API calls after fixes rather than assuming the change works:
