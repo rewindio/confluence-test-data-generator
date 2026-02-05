@@ -8,6 +8,7 @@ high-volume content creation.
 """
 
 import argparse
+import asyncio
 import csv
 import logging
 import math
@@ -393,6 +394,161 @@ class ConfluenceDataGenerator:
                     success = self.space_gen.set_space_look_and_feel(space["key"], homepage_config)
                     if success:
                         created += 1
+
+                self.benchmark.end_phase("space_look_and_feel", created)
+                self._complete_phase("space_look_and_feel")
+                self.logger.info(f"Updated {created} space look and feel settings")
+
+    # ========== Async Generation Methods ==========
+
+    async def generate_async(self, content_count: int, counts: dict[str, int]):
+        """Generate all test data asynchronously.
+
+        Args:
+            content_count: Target number of content items
+            counts: Pre-calculated item counts by type
+        """
+        self._init_or_resume_checkpoint(content_count, counts, async_mode=True)
+        self._log_header(counts)
+
+        # Phase 1: Create spaces
+        spaces = await self._create_spaces_async(counts)
+
+        if not spaces:
+            self.logger.error("No spaces created, cannot continue")
+            return
+
+        # Phase 2: Create space-related items (labels, properties, permissions)
+        if not self.content_only:
+            await self._create_space_items_async(spaces, counts)
+
+        # Phase 3: Create pages (NOT YET IMPLEMENTED)
+        # pages = await self._create_pages_async(spaces, counts)
+
+        # Phase 4: Create page-related items (NOT YET IMPLEMENTED)
+        # await self._create_page_items_async(pages, counts)
+
+        # Phase 5: Create blogposts (NOT YET IMPLEMENTED)
+        # blogposts = await self._create_blogposts_async(spaces, counts)
+
+        # Phase 6: Create blogpost-related items (NOT YET IMPLEMENTED)
+        # await self._create_blogpost_items_async(blogposts, counts)
+
+        # Phase 7: Create attachments (NOT YET IMPLEMENTED)
+        # Phase 8: Create comments (NOT YET IMPLEMENTED)
+        # Phase 9: Create templates (NOT YET IMPLEMENTED)
+
+        # Close async session
+        await self.space_gen.close_async_session()
+
+        self._log_footer()
+
+    async def _create_spaces_async(self, counts: dict[str, int]) -> list[dict]:
+        """Create spaces asynchronously.
+
+        Returns list of created space dicts with keys: key, id, name
+        """
+        if self._is_phase_complete("spaces"):
+            # Restore spaces from checkpoint
+            if self.checkpoint and self.checkpoint.checkpoint:
+                space_keys = self.checkpoint.checkpoint.space_keys
+                space_ids = self.checkpoint.checkpoint.space_ids
+                if space_keys and space_ids:
+                    self.logger.info(f"Restored {len(space_keys)} spaces from checkpoint")
+                    return [{"key": key, "id": space_id} for key, space_id in zip(space_keys, space_ids, strict=True)]
+            return []
+
+        self._start_phase("spaces")
+
+        # Get space count - use space_v2 or space
+        num_spaces = counts.get("space_v2", counts.get("space", 1))
+        remaining = self._get_remaining_count("spaces", num_spaces)
+
+        if remaining <= 0:
+            self._complete_phase("spaces")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} spaces (async)...")
+        self.benchmark.start_phase("spaces", remaining)
+
+        spaces = await self.space_gen.create_spaces_async(remaining)
+
+        self.benchmark.end_phase("spaces", len(spaces))
+
+        # Update checkpoint with created spaces
+        if self.checkpoint and spaces:
+            for space in spaces:
+                self.checkpoint.add_space(space["key"], space["id"])
+
+        self._complete_phase("spaces")
+
+        self.logger.info(f"Created {len(spaces)} spaces")
+        return spaces
+
+    async def _create_space_items_async(self, spaces: list[dict], counts: dict[str, int]):
+        """Create space-related items (labels, properties, permissions) asynchronously."""
+        space_keys = [s["key"] for s in spaces]
+
+        # Space labels (and categories) - run in parallel across spaces
+        if not self._is_phase_complete("space_labels"):
+            num_labels = counts.get("space_label_v2", 0)
+            if num_labels > 0:
+                self._start_phase("space_labels")
+                labels_per_space = max(1, num_labels // len(spaces))
+                total_labels = labels_per_space * len(spaces)
+
+                self.logger.info(f"\nCreating {total_labels} space labels ({labels_per_space} per space, async)...")
+                self.benchmark.start_phase("space_labels", total_labels)
+
+                # Create tasks for parallel execution
+                tasks = [self.space_gen.add_space_labels_async(key, labels_per_space) for key in space_keys]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                created = sum(r for r in results if isinstance(r, int))
+
+                self.benchmark.end_phase("space_labels", created)
+                self._complete_phase("space_labels")
+                self.logger.info(f"Created {created} space labels")
+
+        # Space properties - run in parallel across spaces
+        if not self._is_phase_complete("space_properties"):
+            num_props = counts.get("space_property_v2", 0)
+            if num_props > 0:
+                self._start_phase("space_properties")
+                props_per_space = max(1, num_props // len(spaces))
+                total_props = props_per_space * len(spaces)
+
+                self.logger.info(f"\nCreating {total_props} space properties ({props_per_space} per space, async)...")
+                self.benchmark.start_phase("space_properties", total_props)
+
+                # Create tasks for parallel execution
+                tasks = [self.space_gen.add_space_properties_async(key, props_per_space) for key in space_keys]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                created = sum(r for r in results if isinstance(r, int))
+
+                self.benchmark.end_phase("space_properties", created)
+                self._complete_phase("space_properties")
+                self.logger.info(f"Created {created} space properties")
+
+        # Space look and feel - run in parallel across spaces
+        if not self._is_phase_complete("space_look_and_feel"):
+            num_laf = counts.get("space_look_and_feel_setting", 0)
+            if num_laf > 0:
+                self._start_phase("space_look_and_feel")
+                spaces_to_update = min(num_laf, len(spaces))
+
+                self.logger.info(f"\nUpdating look and feel for {spaces_to_update} spaces (async)...")
+                self.benchmark.start_phase("space_look_and_feel", spaces_to_update)
+
+                # Create tasks for parallel execution
+                tasks = []
+                for space in spaces[:spaces_to_update]:
+                    homepage_config = {"welcomeMessage": f"Welcome to {space.get('name', space['key'])}"}
+                    tasks.append(self.space_gen.set_space_look_and_feel_async(space["key"], homepage_config))
+
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                created = sum(1 for r in results if r is True)
 
                 self.benchmark.end_phase("space_look_and_feel", created)
                 self._complete_phase("space_look_and_feel")
