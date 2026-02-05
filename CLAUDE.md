@@ -31,7 +31,7 @@
 │   ├── base.py                  # ConfluenceAPIClient, RateLimitState (~640 lines)
 │   ├── benchmark.py             # BenchmarkTracker, PhaseMetrics (~400 lines)
 │   ├── checkpoint.py            # CheckpointManager (~620 lines)
-│   ├── spaces.py                # SpaceGenerator (TODO)
+│   ├── spaces.py                # SpaceGenerator (DONE)
 │   ├── pages.py                 # PageGenerator (TODO)
 │   ├── blogposts.py             # BlogpostGenerator (TODO)
 │   ├── attachments.py           # AttachmentGenerator (TODO)
@@ -42,6 +42,7 @@
 │   ├── test_base.py             # ConfluenceAPIClient tests
 │   ├── test_benchmark.py        # BenchmarkTracker tests
 │   ├── test_checkpoint.py       # CheckpointManager tests
+│   ├── test_spaces.py           # SpaceGenerator tests (53 tests)
 │   └── test_user_generator.py   # User generator tests (51 tests)
 ├── .github/workflows/
 │   ├── test.yml                 # Tests with 90% coverage threshold
@@ -135,6 +136,17 @@ class CheckpointManager:
     methods from multiple concurrent tasks.
     """
 ```
+
+### API Integration Gotchas
+
+When fixing Atlassian/Confluence API issues, always verify **both** the endpoint AND the resource naming conventions. Atlassian Cloud uses site-specific naming that differs from documentation examples:
+
+- **Group names**: Cloud uses `confluence-users-{site-name}` not just `confluence-users`
+- **User IDs**: Account IDs are long alphanumeric strings, not usernames
+- **Space keys**: Query params for lookup (`?keys=KEY`), not path segments (`/spaces/KEY`)
+- **Labels vs Categories**: Both use the same legacy endpoint with different prefixes (`global` vs `team`)
+
+Always test against a real instance after API fixes—mock tests don't catch naming convention issues.
 
 ---
 
@@ -244,8 +256,14 @@ Generation follows this order (defined in `CheckpointManager.PHASE_ORDER`):
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `space` | GET | List spaces |
+| `space/{key}/label` | POST | Add space label (prefix: `global`) or category (prefix: `team`) |
+| `space/{key}/property` | POST | Add space property |
 | `user/current` | GET | Get current user |
 | `content/{id}/child/attachment` | POST | Upload attachment |
+
+**Note on Labels vs Categories**: Both use the same endpoint but with different prefixes in the request body:
+- Labels: `[{"prefix": "global", "name": "label-name"}]`
+- Categories: `[{"prefix": "team", "name": "category-name"}]`
 
 ---
 
@@ -283,6 +301,17 @@ python test_connectivity.py
 - Sync HTTP calls: `responses` library
 - Async HTTP calls: `aioresponses` library
 - File I/O: `tmp_path` pytest fixture
+
+### End-to-End Verification
+
+After implementing a fix, verify the complete data flow end-to-end before considering the task complete—especially for user/permission assignments. Mock tests validate API call structure but don't catch:
+
+- Incorrect resource naming conventions (site-specific names)
+- Missing or deprecated API endpoints
+- Permission/access issues with created resources
+- Data format differences between v1 and v2 APIs
+
+When possible, run a quick manual test against a real Confluence instance after fixing API-related issues.
 
 ---
 
@@ -341,6 +370,27 @@ Based on [Atlassian's sizing guide](https://confluence.atlassian.com/enterprise/
 
 ---
 
+## Workflow
+
+### Validate Fixes Before Committing
+
+For Python projects, prefer running quick validation tests or API calls after fixes rather than assuming the change works:
+
+```bash
+# Quick unit test validation
+pytest tests/test_specific.py -v -k "test_name"
+
+# Quick syntax/import check
+python -c "from generators.spaces import SpaceGenerator; print('OK')"
+
+# Quick API validation (if credentials available)
+python test_connectivity.py
+```
+
+This catches issues early—before they're committed and before CI runs.
+
+---
+
 ## Quick Reference for Common Tasks
 
 ### "Add support for [new content type]"
@@ -378,5 +428,5 @@ Always check documentation before marking complete:
 
 ---
 
-**Last Updated**: 2026-02-04
+**Last Updated**: 2026-02-05
 **AI Agent Note**: This file is specifically for you. The user-facing docs are in README.md.
