@@ -20,6 +20,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from generators.benchmark import BenchmarkTracker
+from generators.blogposts import BlogPostGenerator
 from generators.checkpoint import CheckpointManager
 from generators.pages import PageGenerator
 from generators.spaces import SpaceGenerator
@@ -168,8 +169,10 @@ class ConfluenceDataGenerator:
         # Initialize page generator
         self.page_gen = PageGenerator(prefix=self.prefix, **common_args)
 
+        # Initialize blogpost generator
+        self.blogpost_gen = BlogPostGenerator(prefix=self.prefix, **common_args)
+
         # Future generators will be added here as they're implemented:
-        # self.blogpost_gen = BlogPostGenerator(prefix=self.prefix, **common_args)
         # self.attachment_gen = AttachmentGenerator(prefix=self.prefix, **common_args)
         # self.comment_gen = CommentGenerator(prefix=self.prefix, **common_args)
         # self.template_gen = TemplateGenerator(prefix=self.prefix, **common_args)
@@ -282,11 +285,12 @@ class ConfluenceDataGenerator:
         if pages and not self.content_only:
             self._create_page_items_sync(pages, counts)
 
-        # Phase 5: Create blogposts (NOT YET IMPLEMENTED)
-        # blogposts = self._create_blogposts_sync(spaces, counts)
+        # Phase 5: Create blogposts
+        blogposts = self._create_blogposts_sync(spaces, counts)
 
-        # Phase 6: Create blogpost-related items (NOT YET IMPLEMENTED)
-        # self._create_blogpost_items_sync(blogposts, counts)
+        # Phase 6: Create blogpost-related items
+        if blogposts and not self.content_only:
+            self._create_blogpost_items_sync(blogposts, counts)
 
         # Phase 7: Create attachments (NOT YET IMPLEMENTED)
         # Phase 8: Create comments (NOT YET IMPLEMENTED)
@@ -487,6 +491,101 @@ class ConfluenceDataGenerator:
         # if not self._is_phase_complete("page_restrictions"):
         #     ...
 
+    def _create_blogposts_sync(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
+        """Create blogposts synchronously.
+
+        Returns list of created blogpost dicts with keys: id, title, spaceId
+        """
+        if self._is_phase_complete("blogposts"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                blogpost_ids = self.checkpoint.checkpoint.blogpost_ids
+                if blogpost_ids:
+                    self.logger.info(f"Restored {len(blogpost_ids)} blogposts from checkpoint")
+                    return [{"id": bid, "title": f"Blog Post {bid}"} for bid in blogpost_ids]
+            return []
+
+        self._start_phase("blogposts")
+
+        num_blogposts = counts.get("blogpost_v2", counts.get("blogpost", 0))
+        remaining = self._get_remaining_count("blogposts", num_blogposts)
+
+        if remaining <= 0:
+            self._complete_phase("blogposts")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} blogposts...")
+        self.benchmark.start_phase("blogposts", remaining)
+
+        blogposts = self.blogpost_gen.create_blogposts(spaces, remaining)
+
+        self.benchmark.end_phase("blogposts", len(blogposts))
+
+        # Update checkpoint with created blogposts
+        if self.checkpoint and blogposts:
+            space_id_to_key: dict[str, str] = {
+                space["id"]: space["key"] for space in spaces if "id" in space and "key" in space
+            }
+
+            blogposts_by_space: dict[str, list[str]] = {}
+            for bp in blogposts:
+                space_id = bp.get("spaceId")
+                space_key = space_id_to_key.get(space_id, "unknown")
+                blogposts_by_space.setdefault(space_key, []).append(bp["id"])
+            for space_key, bp_ids in blogposts_by_space.items():
+                self.checkpoint.add_blogpost_ids(bp_ids, space_key)
+            self.checkpoint.save()
+
+        self._complete_phase("blogposts")
+
+        self.logger.info(f"Created {len(blogposts)} blogposts")
+        return blogposts
+
+    def _create_blogpost_items_sync(self, blogposts: list[dict], counts: dict[str, int]):
+        """Create blogpost-related items (labels, properties, restrictions, versions) synchronously."""
+        blogpost_ids = [bp["id"] for bp in blogposts]
+
+        # Blogpost labels
+        if not self._is_phase_complete("blogpost_labels"):
+            num_labels = counts.get("blogpost_label_v2", counts.get("blogpost_label", 0))
+            if num_labels > 0:
+                self._start_phase("blogpost_labels")
+                self.logger.info(f"\nCreating {num_labels} blogpost labels...")
+                self.benchmark.start_phase("blogpost_labels", num_labels)
+
+                created = self.blogpost_gen.add_blogpost_labels(blogpost_ids, num_labels)
+
+                self.benchmark.end_phase("blogpost_labels", created)
+                self._complete_phase("blogpost_labels")
+                self.logger.info(f"Created {created} blogpost labels")
+
+        # Blogpost properties
+        if not self._is_phase_complete("blogpost_properties"):
+            num_props = counts.get("blogpost_property_v2", counts.get("blogpost_property", 0))
+            if num_props > 0:
+                self._start_phase("blogpost_properties")
+                self.logger.info(f"\nCreating {num_props} blogpost properties...")
+                self.benchmark.start_phase("blogpost_properties", num_props)
+
+                created = self.blogpost_gen.set_blogpost_properties(blogpost_ids, num_props)
+
+                self.benchmark.end_phase("blogpost_properties", created)
+                self._complete_phase("blogpost_properties")
+                self.logger.info(f"Created {created} blogpost properties")
+
+        # Blogpost versions
+        if not self._is_phase_complete("blogpost_versions"):
+            num_versions = counts.get("blogpost_version_v2", counts.get("blogpost_version", 0))
+            if num_versions > 0:
+                self._start_phase("blogpost_versions")
+                self.logger.info(f"\nCreating {num_versions} blogpost versions...")
+                self.benchmark.start_phase("blogpost_versions", num_versions)
+
+                created = self.blogpost_gen.create_blogpost_versions(blogposts, num_versions)
+
+                self.benchmark.end_phase("blogpost_versions", created)
+                self._complete_phase("blogpost_versions")
+                self.logger.info(f"Created {created} blogpost versions")
+
     # ========== Async Generation Methods ==========
 
     async def generate_async(self, content_count: int, counts: dict[str, int]):
@@ -518,11 +617,12 @@ class ConfluenceDataGenerator:
             if pages and not self.content_only:
                 await self._create_page_items_async(pages, counts)
 
-            # Phase 5: Create blogposts (NOT YET IMPLEMENTED)
-            # blogposts = await self._create_blogposts_async(spaces, counts)
+            # Phase 5: Create blogposts
+            blogposts = await self._create_blogposts_async(spaces, counts)
 
-            # Phase 6: Create blogpost-related items (NOT YET IMPLEMENTED)
-            # await self._create_blogpost_items_async(blogposts, counts)
+            # Phase 6: Create blogpost-related items
+            if blogposts and not self.content_only:
+                await self._create_blogpost_items_async(blogposts, counts)
 
             # Phase 7: Create attachments (NOT YET IMPLEMENTED)
             # Phase 8: Create comments (NOT YET IMPLEMENTED)
@@ -533,6 +633,7 @@ class ConfluenceDataGenerator:
             # Always close async sessions
             await self.space_gen._close_async_session()
             await self.page_gen._close_async_session()
+            await self.blogpost_gen._close_async_session()
 
     async def _create_spaces_async(self, counts: dict[str, int]) -> list[dict]:
         """Create spaces asynchronously.
@@ -727,6 +828,101 @@ class ConfluenceDataGenerator:
                 self.benchmark.end_phase("page_versions", created)
                 self._complete_phase("page_versions")
                 self.logger.info(f"Created {created} page versions")
+
+    async def _create_blogposts_async(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
+        """Create blogposts asynchronously.
+
+        Returns list of created blogpost dicts with keys: id, title, spaceId
+        """
+        if self._is_phase_complete("blogposts"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                blogpost_ids = self.checkpoint.checkpoint.blogpost_ids
+                if blogpost_ids:
+                    self.logger.info(f"Restored {len(blogpost_ids)} blogposts from checkpoint")
+                    return [{"id": bid, "title": f"Blog Post {bid}"} for bid in blogpost_ids]
+            return []
+
+        self._start_phase("blogposts")
+
+        num_blogposts = counts.get("blogpost_v2", counts.get("blogpost", 0))
+        remaining = self._get_remaining_count("blogposts", num_blogposts)
+
+        if remaining <= 0:
+            self._complete_phase("blogposts")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} blogposts (async)...")
+        self.benchmark.start_phase("blogposts", remaining)
+
+        blogposts = await self.blogpost_gen.create_blogposts_async(spaces, remaining)
+
+        self.benchmark.end_phase("blogposts", len(blogposts))
+
+        # Update checkpoint with created blogposts
+        if self.checkpoint and blogposts:
+            space_id_to_key: dict[str, str] = {
+                space["id"]: space["key"] for space in spaces if "id" in space and "key" in space
+            }
+
+            blogposts_by_space: dict[str, list[str]] = {}
+            for bp in blogposts:
+                space_id = bp.get("spaceId")
+                space_key = space_id_to_key.get(space_id, "unknown")
+                blogposts_by_space.setdefault(space_key, []).append(bp["id"])
+            for space_key, bp_ids in blogposts_by_space.items():
+                self.checkpoint.add_blogpost_ids(bp_ids, space_key)
+            self.checkpoint.save()
+
+        self._complete_phase("blogposts")
+
+        self.logger.info(f"Created {len(blogposts)} blogposts")
+        return blogposts
+
+    async def _create_blogpost_items_async(self, blogposts: list[dict], counts: dict[str, int]):
+        """Create blogpost-related items asynchronously."""
+        blogpost_ids = [bp["id"] for bp in blogposts]
+
+        # Blogpost labels
+        if not self._is_phase_complete("blogpost_labels"):
+            num_labels = counts.get("blogpost_label_v2", counts.get("blogpost_label", 0))
+            if num_labels > 0:
+                self._start_phase("blogpost_labels")
+                self.logger.info(f"\nCreating {num_labels} blogpost labels (async)...")
+                self.benchmark.start_phase("blogpost_labels", num_labels)
+
+                created = await self.blogpost_gen.add_blogpost_labels_async(blogpost_ids, num_labels)
+
+                self.benchmark.end_phase("blogpost_labels", created)
+                self._complete_phase("blogpost_labels")
+                self.logger.info(f"Created {created} blogpost labels")
+
+        # Blogpost properties
+        if not self._is_phase_complete("blogpost_properties"):
+            num_props = counts.get("blogpost_property_v2", counts.get("blogpost_property", 0))
+            if num_props > 0:
+                self._start_phase("blogpost_properties")
+                self.logger.info(f"\nCreating {num_props} blogpost properties (async)...")
+                self.benchmark.start_phase("blogpost_properties", num_props)
+
+                created = await self.blogpost_gen.set_blogpost_properties_async(blogpost_ids, num_props)
+
+                self.benchmark.end_phase("blogpost_properties", created)
+                self._complete_phase("blogpost_properties")
+                self.logger.info(f"Created {created} blogpost properties")
+
+        # Blogpost versions
+        if not self._is_phase_complete("blogpost_versions"):
+            num_versions = counts.get("blogpost_version_v2", counts.get("blogpost_version", 0))
+            if num_versions > 0:
+                self._start_phase("blogpost_versions")
+                self.logger.info(f"\nCreating {num_versions} blogpost versions (async)...")
+                self.benchmark.start_phase("blogpost_versions", num_versions)
+
+                created = await self.blogpost_gen.create_blogpost_versions_async(blogposts, num_versions)
+
+                self.benchmark.end_phase("blogpost_versions", created)
+                self._complete_phase("blogpost_versions")
+                self.logger.info(f"Created {created} blogpost versions")
 
 
 def setup_logging(prefix: str, verbose: bool = False) -> str:

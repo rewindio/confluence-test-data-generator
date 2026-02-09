@@ -398,6 +398,8 @@ git commit -m "feat: add page generator with hierarchy support"
 
 ## Task 8: Blog Post Generator (generators/blogposts.py)
 
+**Status: COMPLETED**
+
 **Files:**
 - Create: `generators/blogposts.py`
 
