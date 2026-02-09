@@ -880,8 +880,13 @@ class PageGenerator(ConfluenceAPIClient):
     ) -> int:
         """Create multiple page versions asynchronously.
 
-        Note: Versions for the same page must be sequential (each needs the
-        current version number), so we batch across different pages.
+        Versions for the same page must be sequential (each needs the current
+        version number), so we group versions by page and process each page's
+        versions sequentially. Different pages are processed in parallel.
+
+        To avoid 409 conflicts from Confluence's eventual consistency, each
+        page's current version is fetched once, then incremented locally for
+        subsequent versions rather than re-reading from the API.
 
         Args:
             pages: List of page dicts with 'id' and 'title'
@@ -895,21 +900,92 @@ class PageGenerator(ConfluenceAPIClient):
 
         self.logger.info(f"Creating {count} page versions (async, concurrency: {self.concurrency})...")
 
+        # Distribute versions round-robin across pages
+        versions_per_page: dict[str, int] = {}
+        for i in range(count):
+            page = pages[i % len(pages)]
+            pid = page["id"]
+            versions_per_page[pid] = versions_per_page.get(pid, 0) + 1
+
+        # Build a lookup for page titles
+        page_titles = {p["id"]: p["title"] for p in pages}
+
         created = 0
-        batch_size = min(self.concurrency, len(pages))
 
-        for batch_start in range(0, count, batch_size):
-            batch_end = min(batch_start + batch_size, count)
+        async def _create_versions_for_page(page_id: str, num_versions: int) -> int:
+            """Create versions for a single page sequentially.
 
-            tasks = []
-            for i in range(batch_start, batch_end):
-                page = pages[i % len(pages)]
-                tasks.append(self.create_page_version_async(page["id"], page["title"]))
+            Fetches the current version once, then tracks the version number
+            locally. On 409 CONFLICT (Hibernate optimistic lock from a
+            concurrent write like property updates), re-reads the version
+            and retries.
+            """
+            if self.dry_run:
+                return num_versions
 
+            # Get current version number once
+            success, page_data = await self._api_call_async(
+                "GET", f"pages/{page_id}", params={"body-format": "storage"}
+            )
+            if not success or not page_data:
+                self.logger.warning(f"Failed to get page {page_id} for versioning")
+                return 0
+
+            current_version = page_data.get("version", {}).get("number", 1)
+            title = page_titles[page_id]
+            page_created = 0
+
+            for _ in range(num_versions):
+                max_conflict_retries = 3
+                for retry in range(max_conflict_retries):
+                    next_version = current_version + 1
+                    new_body = f"<p>{self.generate_random_text(10, 30)}</p>"
+                    update_data = {
+                        "id": page_id,
+                        "status": "current",
+                        "title": title,
+                        "body": {
+                            "representation": "storage",
+                            "value": new_body,
+                        },
+                        "version": {
+                            "number": next_version,
+                            "message": f"Auto-generated version {next_version}",
+                        },
+                    }
+
+                    success, _ = await self._api_call_async("PUT", f"pages/{page_id}", data=update_data)
+                    if success:
+                        current_version = next_version
+                        page_created += 1
+                        break
+
+                    # On failure, re-read the current version in case of 409 conflict
+                    if retry < max_conflict_retries - 1:
+                        await asyncio.sleep(0.5 * (retry + 1))
+                        ok, fresh = await self._api_call_async(
+                            "GET", f"pages/{page_id}", params={"body-format": "storage"}
+                        )
+                        if ok and fresh:
+                            current_version = fresh.get("version", {}).get("number", current_version)
+                    else:
+                        self.logger.warning(
+                            f"Failed to create version of page {page_id} after {max_conflict_retries} retries"
+                        )
+
+            return page_created
+
+        # Process pages in parallel batches, but versions within a page sequentially
+        page_ids = list(versions_per_page.keys())
+        for batch_start in range(0, len(page_ids), self.concurrency):
+            batch = page_ids[batch_start : batch_start + self.concurrency]
+
+            tasks = [_create_versions_for_page(pid, versions_per_page[pid]) for pid in batch]
             results = await asyncio.gather(*tasks, return_exceptions=True)
+
             for result in results:
-                if result is True:
-                    created += 1
+                if isinstance(result, int):
+                    created += result
 
             self.logger.info(f"Created {created}/{count} page versions")
 

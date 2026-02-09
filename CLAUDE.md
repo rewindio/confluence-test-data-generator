@@ -32,16 +32,16 @@
 │   │       └── DESIGN.md        # Design document
 │   └── guides/
 │       └── AI_IMPLEMENTATION_GUIDE.md
-├── confluence_data_generator.py  # Main orchestrator (TODO)
+├── confluence_data_generator.py  # Main orchestrator (spaces, pages, blogposts wired up)
 ├── confluence_user_generator.py  # Standalone user/group generator (DONE)
 ├── generators/                   # Modular generators package
 │   ├── __init__.py              # Package exports
 │   ├── base.py                  # ConfluenceAPIClient, RateLimitState (~640 lines)
 │   ├── benchmark.py             # BenchmarkTracker, PhaseMetrics (~400 lines)
+│   ├── blogposts.py             # BlogPostGenerator (DONE)
 │   ├── checkpoint.py            # CheckpointManager (~620 lines)
 │   ├── spaces.py                # SpaceGenerator (DONE)
-│   ├── pages.py                 # PageGenerator (TODO)
-│   ├── blogposts.py             # BlogpostGenerator (TODO)
+│   ├── pages.py                 # PageGenerator (DONE)
 │   ├── attachments.py           # AttachmentGenerator (TODO)
 │   ├── comments.py              # CommentGenerator (TODO)
 │   └── templates.py             # TemplateGenerator (TODO)
@@ -49,7 +49,9 @@
 │   ├── conftest.py              # Shared pytest fixtures
 │   ├── test_base.py             # ConfluenceAPIClient tests
 │   ├── test_benchmark.py        # BenchmarkTracker tests
+│   ├── test_blogposts.py        # BlogPostGenerator tests (49 tests)
 │   ├── test_checkpoint.py       # CheckpointManager tests
+│   ├── test_pages.py            # PageGenerator tests
 │   ├── test_spaces.py           # SpaceGenerator tests (53 tests)
 │   └── test_user_generator.py   # User generator tests (51 tests)
 ├── .github/workflows/
@@ -144,6 +146,42 @@ class CheckpointManager:
     methods from multiple concurrent tasks.
     """
 ```
+
+#### Serialize Versioning Per Resource + Retry on 409
+Confluence uses Hibernate optimistic locking (`HIBERNATEVERSION` column). Three things cause 409 CONFLICT (`StaleStateException`):
+
+1. **Concurrent writes**: Two requests read version N, both try to write N+1
+2. **Eventual consistency**: Sequential GET after PUT returns a stale version
+3. **Cross-operation conflicts**: Other writes (e.g. property updates) increment `HIBERNATEVERSION` even though the API version number doesn't change
+
+The fix has three parts:
+- (a) Group versions by resource, process each resource sequentially
+- (b) Fetch version once, increment locally
+- (c) On failure, wait briefly, re-read the version from the API, and retry
+
+```python
+# GOOD - sequential per resource, local tracking, retry with re-read on 409
+async def _versions_for_page(page_id, n):
+    data = await api_get(f"pages/{page_id}")
+    current = data["version"]["number"]
+    for _ in range(n):
+        for retry in range(3):                         # Retry on conflict
+            next_ver = current + 1
+            success = await api_put(f"pages/{page_id}", version=next_ver)
+            if success:
+                current = next_ver
+                break
+            # Re-read version on failure (409 from cross-operation conflict)
+            await asyncio.sleep(0.5 * (retry + 1))
+            fresh = await api_get(f"pages/{page_id}")
+            current = fresh["version"]["number"]
+
+# Parallel across pages, sequential within each page
+for batch in batched(page_ids, concurrency):
+    tasks = [_versions_for_page(pid, versions_per_page[pid]) for pid in batch]
+    await asyncio.gather(*tasks)
+```
+This applies to **any** operation that does read-modify-write on the same resource: page versions, blogpost versions, attachment versions, comment versions.
 
 ### API Integration Gotchas
 
