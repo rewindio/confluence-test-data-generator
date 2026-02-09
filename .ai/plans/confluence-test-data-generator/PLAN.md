@@ -478,6 +478,36 @@ The attachment generator was built with both sync and async methods using the le
 
 ---
 
+## Task 9b: Attachment Checkpoint Resume Support
+
+**Status: TODO**
+
+**Context:** During PR #14 code review, it was identified that the checkpoint system does not persist attachment metadata (attachment IDs, which pages they belong to). This means `--resume` cannot skip already-uploaded attachments or resume attachment label/version phases.
+
+**Files:**
+- Modify: `generators/checkpoint.py`
+- Modify: `generators/attachments.py`
+- Modify: `confluence_data_generator.py`
+- Modify: `tests/test_attachments.py`
+- Modify: `tests/test_checkpoint.py`
+
+**What's needed:**
+
+1. **Persist attachment metadata in checkpoint**: Store attachment IDs and their parent page/blogpost IDs so that on resume, the attachment phase can skip already-uploaded files and the label/version phases know which attachments exist.
+
+2. **Resume-aware attachment creation**: `create_attachments_async()` should check the checkpoint for already-created attachments and skip them, similar to how pages and blogposts handle resume.
+
+3. **Resume-aware label/version phases**: `add_attachment_labels_async()` and `create_attachment_versions_async()` should use checkpoint data to pick up where they left off.
+
+**Design considerations:**
+- Attachment counts can be large — checkpoint data structure should be space-efficient
+- Follow the existing pattern used for pages (`pages_per_space`, `page_ids`) in `CheckpointData`
+- Consider storing as `attachment_ids: list[str]` and `attachments_per_page: dict[str, int]`
+
+**PR Review Reference:** Comments #9 and #10 on PR #14
+
+---
+
 ## Task 10: Comment Generator (generators/comments.py)
 
 **Files:**
