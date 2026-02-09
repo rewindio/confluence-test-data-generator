@@ -188,6 +188,22 @@ class ConfluenceAPIClient:
         if self.benchmark:
             self.benchmark.record_error()
 
+    @staticmethod
+    def _truncate_error_response(text: str, max_length: int = 200) -> str:
+        """Truncate error response text, especially HTML error pages.
+
+        Confluence sometimes returns full HTML pages for 5xx errors.
+        Logging the entire HTML is extremely noisy and unhelpful.
+        """
+        if not text:
+            return text
+        stripped = text.strip()
+        if stripped.lower().startswith(("<!doctype", "<html", "<?xml")):
+            return f"[HTML error page, {len(text)} bytes] (truncated)"
+        if len(text) > max_length:
+            return text[:max_length] + f"... (truncated, {len(text)} bytes total)"
+        return text
+
     def _handle_rate_limit(self, response: requests.Response):
         """Handle rate limit responses intelligently"""
         if response.status_code == 429:
@@ -285,7 +301,7 @@ class ConfluenceAPIClient:
                     # Log response body for errors to help debug
                     if hasattr(e, "response") and e.response is not None:
                         try:
-                            error_detail = e.response.text
+                            error_detail = self._truncate_error_response(e.response.text)
                             self.logger.error(f"Response body: {error_detail}")
                         except Exception:
                             pass
@@ -437,8 +453,15 @@ class ConfluenceAPIClient:
         params: dict | None = None,
         max_retries: int = 5,
         base_url: str | None = None,
+        suppress_errors: tuple[int, ...] | None = None,
     ) -> tuple[bool, dict | None]:
         """Make an async API call with rate limit handling.
+
+        Args:
+            suppress_errors: HTTP status codes to suppress error logging for.
+                Use when the caller has its own retry/handling logic for
+                specific errors (e.g., 409 conflicts in version creation).
+                These will log at DEBUG instead of ERROR.
 
         Returns (success: bool, response_json: Optional[Dict])
         """
@@ -477,16 +500,32 @@ class ConfluenceAPIClient:
                             )
                             if is_already_exists:
                                 self.logger.debug(f"Item already exists: {endpoint}")
-                            else:
+                            elif suppress_errors and response.status in suppress_errors:
+                                # Caller handles this status code with its own retry logic
+                                self.logger.debug(f"API call got {response.status} for {endpoint} (caller will handle)")
+                            elif response.status < 500:
+                                # Client error - not retryable
                                 self._record_error()
                                 self.logger.error(f"API call failed ({response.status}): {endpoint}")
-                                self.logger.error(f"Response: {error_text}")
+                                self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
+                            elif attempt < max_retries - 1:
+                                # Server error with retries remaining
+                                self.logger.debug(
+                                    f"API call got {response.status} for {endpoint}, retrying "
+                                    f"(attempt {attempt + 1}/{max_retries})"
+                                )
+                                await asyncio.sleep(2**attempt)
+                                continue
+                            else:
+                                # Server error, all retries exhausted
+                                self._record_error()
+                                self.logger.error(
+                                    f"API call failed ({response.status}) after {max_retries} attempts: {endpoint}"
+                                )
+                                self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
                             # Don't retry on client errors (4xx) except 429 (rate limit)
                             if response.status < 500:
                                 return (False, None)
-                            if attempt < max_retries - 1:
-                                await asyncio.sleep(2**attempt)
-                                continue
                             return (False, None)
 
                         if response.status == 204:
@@ -496,11 +535,15 @@ class ConfluenceAPIClient:
                         return (True, result)
 
                 except aiohttp.ClientError as e:
-                    self._record_error()
-                    self.logger.error(f"Async API call failed (attempt {attempt + 1}/{max_retries}): {e}")
                     if attempt < max_retries - 1:
+                        self.logger.debug(
+                            f"API call connection error for {endpoint}, retrying "
+                            f"(attempt {attempt + 1}/{max_retries}): {e}"
+                        )
                         await asyncio.sleep(2**attempt)
                     else:
+                        self._record_error()
+                        self.logger.error(f"API call failed after {max_retries} attempts: {endpoint}: {e}")
                         return (False, None)
 
         return (False, None)

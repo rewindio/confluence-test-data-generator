@@ -1210,3 +1210,49 @@ class TestGetAllUsers:
             users = client.get_all_users()
 
         assert users == []
+
+
+class TestTruncateErrorResponse:
+    """Tests for _truncate_error_response static method."""
+
+    def test_truncates_html_error_page(self):
+        """HTML error pages are replaced with a short summary."""
+        html = "<!DOCTYPE html><html><body>We'll be back in a flash</body></html>"
+        result = ConfluenceAPIClient._truncate_error_response(html)
+        assert "[HTML error page" in result
+        assert "truncated" in result
+        assert "<html>" not in result
+
+    def test_truncates_html_case_insensitive(self):
+        """HTML detection is case-insensitive."""
+        html = "<HTML><BODY>Error</BODY></HTML>"
+        result = ConfluenceAPIClient._truncate_error_response(html)
+        assert "[HTML error page" in result
+
+    def test_truncates_xml_response(self):
+        """XML error responses are also truncated."""
+        xml = '<?xml version="1.0"?><error>Server error</error>'
+        result = ConfluenceAPIClient._truncate_error_response(xml)
+        assert "[HTML error page" in result
+
+    def test_short_json_error_passes_through(self):
+        """Short JSON error responses are not truncated."""
+        json_err = '{"message": "Not found"}'
+        result = ConfluenceAPIClient._truncate_error_response(json_err)
+        assert result == json_err
+
+    def test_long_text_truncated(self):
+        """Long non-HTML text is truncated with byte count."""
+        long_text = "x" * 500
+        result = ConfluenceAPIClient._truncate_error_response(long_text)
+        assert len(result) < 500
+        assert "truncated" in result
+        assert "500 bytes" in result
+
+    def test_empty_string_passes_through(self):
+        """Empty string is returned as-is."""
+        assert ConfluenceAPIClient._truncate_error_response("") == ""
+
+    def test_none_passes_through(self):
+        """None is returned as-is."""
+        assert ConfluenceAPIClient._truncate_error_response(None) is None

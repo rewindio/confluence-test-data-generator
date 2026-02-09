@@ -32,17 +32,17 @@
 │   │       └── DESIGN.md        # Design document
 │   └── guides/
 │       └── AI_IMPLEMENTATION_GUIDE.md
-├── confluence_data_generator.py  # Main orchestrator (spaces, pages, blogposts wired up)
+├── confluence_data_generator.py  # Main orchestrator (spaces, pages, blogposts, attachments wired up)
 ├── confluence_user_generator.py  # Standalone user/group generator (DONE)
 ├── generators/                   # Modular generators package
 │   ├── __init__.py              # Package exports
-│   ├── base.py                  # ConfluenceAPIClient, RateLimitState (~640 lines)
+│   ├── base.py                  # ConfluenceAPIClient, RateLimitState (~680 lines)
 │   ├── benchmark.py             # BenchmarkTracker, PhaseMetrics (~400 lines)
 │   ├── blogposts.py             # BlogPostGenerator (DONE)
 │   ├── checkpoint.py            # CheckpointManager (~620 lines)
 │   ├── spaces.py                # SpaceGenerator (DONE)
 │   ├── pages.py                 # PageGenerator (DONE)
-│   ├── attachments.py           # AttachmentGenerator (TODO)
+│   ├── attachments.py           # AttachmentGenerator (DONE)
 │   ├── comments.py              # CommentGenerator (TODO)
 │   └── templates.py             # TemplateGenerator (TODO)
 ├── tests/                        # Unit tests (90%+ coverage required)
@@ -51,6 +51,7 @@
 │   ├── test_benchmark.py        # BenchmarkTracker tests
 │   ├── test_blogposts.py        # BlogPostGenerator tests (49 tests)
 │   ├── test_checkpoint.py       # CheckpointManager tests
+│   ├── test_attachments.py      # AttachmentGenerator tests (36 tests)
 │   ├── test_pages.py            # PageGenerator tests
 │   ├── test_spaces.py           # SpaceGenerator tests (53 tests)
 │   └── test_user_generator.py   # User generator tests (51 tests)
@@ -183,6 +184,34 @@ for batch in batched(page_ids, concurrency):
 ```
 This applies to **any** operation that does read-modify-write on the same resource: page versions, blogpost versions, attachment versions, comment versions.
 
+#### Suppress Error Logging for Caller-Handled Errors
+When a caller has its own retry logic for specific HTTP errors (e.g., 409 conflicts), use `suppress_errors` to prevent the base class from logging ERROR on every attempt:
+```python
+# BAD - base class logs ERROR on every 409, even when caller retries successfully
+success, _ = await self._api_call_async("PUT", f"pages/{page_id}", data=update_data)
+
+# GOOD - 409s logged at DEBUG; caller's retry loop handles them
+success, _ = await self._api_call_async(
+    "PUT", f"pages/{page_id}", data=update_data, suppress_errors=(409,)
+)
+```
+
+#### Only Log Errors on Final Retry Failure
+For transient errors (5xx, connection errors), log at DEBUG during retries and only escalate to ERROR when all retries are exhausted. This keeps logs clean when retries succeed.
+
+#### Truncate HTML Error Responses
+Confluence returns full HTML pages for 5xx errors. Use `_truncate_error_response()` to avoid dumping thousands of lines of HTML into logs:
+```python
+# BAD - logs entire HTML page
+self.logger.error(f"Response: {error_text}")
+
+# GOOD - detects HTML and truncates
+self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
+```
+
+#### Attachment Uploads Require Separate Session
+The base `_api_call_async()` hardcodes `Content-Type: application/json`. Attachment uploads need multipart form data, so `AttachmentGenerator` creates a dedicated `_async_upload_session` with `X-Atlassian-Token: no-check` header and no Content-Type (let aiohttp set it from FormData).
+
 ### API Integration Gotchas
 
 **Verify endpoints exist before implementing.** Confluence v2/v3 APIs are incomplete—many operations documented for v1 don't exist in newer APIs. Before writing code for a new API call:
@@ -219,7 +248,8 @@ Always test against a real instance after API fixes—mock tests don't catch nam
 - **Purpose**: Base class for all generators with shared API functionality
 - **Key Methods**:
   - `_api_call()`: Synchronous API call with rate limiting
-  - `_api_call_async()`: Async API call with rate limiting
+  - `_api_call_async()`: Async API call with rate limiting (supports `suppress_errors` param)
+  - `_truncate_error_response()`: Truncate HTML/long error responses for clean logging
   - `_create_session()`: Create requests session with connection pooling
   - `_get_async_session()`: Get/create aiohttp session with connection pooling
   - `generate_random_text()`: Get random text from pre-generated pool
@@ -310,7 +340,9 @@ Generation follows this order (defined in `CheckpointManager.PHASE_ORDER`):
 | `space/{key}/label` | POST | Add space label (prefix: `global`) or category (prefix: `team`) |
 | `space/{key}/property` | POST | Add space property |
 | `user/current` | GET | Get current user |
-| `content/{id}/child/attachment` | POST | Upload attachment |
+| `content/{id}/child/attachment` | POST | Upload attachment (multipart form data) |
+| `content/{id}/child/attachment/{att_id}/data` | POST | Upload new attachment version (multipart form data) |
+| `content/{id}/label` | POST | Add label to content (pages, blogposts, attachments) |
 
 **Note on Labels vs Categories**: Both use the same endpoint but with different prefixes in the request body:
 - Labels: `[{"prefix": "global", "name": "label-name"}]`
@@ -474,10 +506,9 @@ Never continue working on the old feature branch after its PR is merged.
 
 Before asking the user to test new functionality, run integration tests yourself using credentials from `.env`:
 
-1. **Run the tool with minimal data** using a unique prefix (trashed spaces retain their keys):
+1. **Run the tool with minimal data** using a unique prefix:
    ```bash
    source .env
-   # Use timestamp-based prefix to avoid conflicts with trashed spaces
    TEST_PREFIX="AITEST$(date +%H%M%S)"
    .venv/bin/python confluence_data_generator.py \
        --url $CONFLUENCE_URL \
@@ -491,19 +522,19 @@ Before asking the user to test new functionality, run integration tests yourself
 
 3. **If errors occur:**
    - Fix the code
-   - Delete the test space via API (moves to trash)
+   - Delete the test space via API (permanently deleted, not moved to trash)
    - Re-run with the same or new prefix
 
 4. **Clean up after successful test:**
    ```bash
    source .env
-   # Delete the space (moves to trash - async operation)
+   # Delete the space (permanent - does NOT go to trash when deleted via API)
    # Replace AITEST1234561 with actual space key from output
    curl -s -u "$CONFLUENCE_EMAIL:$CONFLUENCE_API_TOKEN" -X DELETE \
        "$CONFLUENCE_URL/rest/api/space/${TEST_PREFIX}1"
    ```
 
-   **Note:** Purging from trash requires admin UI (Admin → Data Management → Trashed Spaces). There is no REST API for this in Confluence Cloud.
+   **Note:** Deleting a space via the REST API permanently removes it — it does **not** go to the trash like UI deletion does. The API returns 202 (accepted) and the space is gone.
 
 This catches issues like wrong method names, incorrect API parameters, and missing async methods before the user wastes time debugging.
 
@@ -602,5 +633,5 @@ Always check documentation before marking complete:
 
 ---
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-09
 **AI Agent Note**: This file is specifically for you. The user-facing docs are in README.md.

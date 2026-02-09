@@ -19,6 +19,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from generators.attachments import AttachmentGenerator
 from generators.benchmark import BenchmarkTracker
 from generators.blogposts import BlogPostGenerator
 from generators.checkpoint import CheckpointManager
@@ -172,8 +173,10 @@ class ConfluenceDataGenerator:
         # Initialize blogpost generator
         self.blogpost_gen = BlogPostGenerator(prefix=self.prefix, **common_args)
 
+        # Initialize attachment generator
+        self.attachment_gen = AttachmentGenerator(prefix=self.prefix, **common_args)
+
         # Future generators will be added here as they're implemented:
-        # self.attachment_gen = AttachmentGenerator(prefix=self.prefix, **common_args)
         # self.comment_gen = CommentGenerator(prefix=self.prefix, **common_args)
         # self.template_gen = TemplateGenerator(prefix=self.prefix, **common_args)
 
@@ -292,7 +295,15 @@ class ConfluenceDataGenerator:
         if blogposts and not self.content_only:
             self._create_blogpost_items_sync(blogposts, counts)
 
-        # Phase 7: Create attachments (NOT YET IMPLEMENTED)
+        # Phase 7: Create attachments
+        all_content_ids = [p["id"] for p in pages] + [bp["id"] for bp in blogposts]
+        if all_content_ids and not self.content_only:
+            attachments = self._create_attachments_sync(all_content_ids, counts)
+
+            # Phase 7b: Attachment-related items
+            if attachments:
+                self._create_attachment_items_sync(attachments, counts)
+
         # Phase 8: Create comments (NOT YET IMPLEMENTED)
         # Phase 9: Create templates (NOT YET IMPLEMENTED)
 
@@ -586,6 +597,68 @@ class ConfluenceDataGenerator:
                 self._complete_phase("blogpost_versions")
                 self.logger.info(f"Created {created} blogpost versions")
 
+    def _create_attachments_sync(self, content_ids: list[str], counts: dict[str, int]) -> list[dict]:
+        """Create attachments synchronously.
+
+        Returns list of attachment dicts with keys: id, title, pageId
+        """
+        if self._is_phase_complete("attachments"):
+            return []
+
+        num_attachments = counts.get("attachment_v2", counts.get("attachment", 0))
+        if num_attachments <= 0:
+            return []
+
+        self._start_phase("attachments")
+        remaining = self._get_remaining_count("attachments", num_attachments)
+
+        if remaining <= 0:
+            self._complete_phase("attachments")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} attachments...")
+        self.benchmark.start_phase("attachments", remaining)
+
+        attachments = self.attachment_gen.create_attachments(content_ids, remaining)
+
+        self.benchmark.end_phase("attachments", len(attachments))
+        self._complete_phase("attachments")
+
+        self.logger.info(f"Created {len(attachments)} attachments")
+        return attachments
+
+    def _create_attachment_items_sync(self, attachments: list[dict], counts: dict[str, int]):
+        """Create attachment-related items (labels, versions) synchronously."""
+        attachment_ids = [a["id"] for a in attachments]
+
+        # Attachment labels
+        if not self._is_phase_complete("attachment_labels"):
+            num_labels = counts.get("attachment_label_v2", counts.get("attachment_label", 0))
+            if num_labels > 0:
+                self._start_phase("attachment_labels")
+                self.logger.info(f"\nCreating {num_labels} attachment labels...")
+                self.benchmark.start_phase("attachment_labels", num_labels)
+
+                created = self.attachment_gen.add_attachment_labels(attachment_ids, num_labels)
+
+                self.benchmark.end_phase("attachment_labels", created)
+                self._complete_phase("attachment_labels")
+                self.logger.info(f"Created {created} attachment labels")
+
+        # Attachment versions
+        if not self._is_phase_complete("attachment_versions"):
+            num_versions = counts.get("attachment_version_v2", counts.get("attachment_version", 0))
+            if num_versions > 0:
+                self._start_phase("attachment_versions")
+                self.logger.info(f"\nCreating {num_versions} attachment versions...")
+                self.benchmark.start_phase("attachment_versions", num_versions)
+
+                created = self.attachment_gen.create_attachment_versions(attachments, num_versions)
+
+                self.benchmark.end_phase("attachment_versions", created)
+                self._complete_phase("attachment_versions")
+                self.logger.info(f"Created {created} attachment versions")
+
     # ========== Async Generation Methods ==========
 
     async def generate_async(self, content_count: int, counts: dict[str, int]):
@@ -624,7 +697,15 @@ class ConfluenceDataGenerator:
             if blogposts and not self.content_only:
                 await self._create_blogpost_items_async(blogposts, counts)
 
-            # Phase 7: Create attachments (NOT YET IMPLEMENTED)
+            # Phase 7: Create attachments
+            all_content_ids = [p["id"] for p in pages] + [bp["id"] for bp in blogposts]
+            if all_content_ids and not self.content_only:
+                attachments = await self._create_attachments_async(all_content_ids, counts)
+
+                # Phase 7b: Attachment-related items
+                if attachments:
+                    await self._create_attachment_items_async(attachments, counts)
+
             # Phase 8: Create comments (NOT YET IMPLEMENTED)
             # Phase 9: Create templates (NOT YET IMPLEMENTED)
 
@@ -634,6 +715,7 @@ class ConfluenceDataGenerator:
             await self.space_gen._close_async_session()
             await self.page_gen._close_async_session()
             await self.blogpost_gen._close_async_session()
+            await self.attachment_gen._close_async_session()
 
     async def _create_spaces_async(self, counts: dict[str, int]) -> list[dict]:
         """Create spaces asynchronously.
@@ -923,6 +1005,68 @@ class ConfluenceDataGenerator:
                 self.benchmark.end_phase("blogpost_versions", created)
                 self._complete_phase("blogpost_versions")
                 self.logger.info(f"Created {created} blogpost versions")
+
+    async def _create_attachments_async(self, content_ids: list[str], counts: dict[str, int]) -> list[dict]:
+        """Create attachments asynchronously.
+
+        Returns list of attachment dicts with keys: id, title, pageId
+        """
+        if self._is_phase_complete("attachments"):
+            return []
+
+        num_attachments = counts.get("attachment_v2", counts.get("attachment", 0))
+        if num_attachments <= 0:
+            return []
+
+        self._start_phase("attachments")
+        remaining = self._get_remaining_count("attachments", num_attachments)
+
+        if remaining <= 0:
+            self._complete_phase("attachments")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} attachments (async)...")
+        self.benchmark.start_phase("attachments", remaining)
+
+        attachments = await self.attachment_gen.create_attachments_async(content_ids, remaining)
+
+        self.benchmark.end_phase("attachments", len(attachments))
+        self._complete_phase("attachments")
+
+        self.logger.info(f"Created {len(attachments)} attachments")
+        return attachments
+
+    async def _create_attachment_items_async(self, attachments: list[dict], counts: dict[str, int]):
+        """Create attachment-related items (labels, versions) asynchronously."""
+        attachment_ids = [a["id"] for a in attachments]
+
+        # Attachment labels
+        if not self._is_phase_complete("attachment_labels"):
+            num_labels = counts.get("attachment_label_v2", counts.get("attachment_label", 0))
+            if num_labels > 0:
+                self._start_phase("attachment_labels")
+                self.logger.info(f"\nCreating {num_labels} attachment labels (async)...")
+                self.benchmark.start_phase("attachment_labels", num_labels)
+
+                created = await self.attachment_gen.add_attachment_labels_async(attachment_ids, num_labels)
+
+                self.benchmark.end_phase("attachment_labels", created)
+                self._complete_phase("attachment_labels")
+                self.logger.info(f"Created {created} attachment labels")
+
+        # Attachment versions
+        if not self._is_phase_complete("attachment_versions"):
+            num_versions = counts.get("attachment_version_v2", counts.get("attachment_version", 0))
+            if num_versions > 0:
+                self._start_phase("attachment_versions")
+                self.logger.info(f"\nCreating {num_versions} attachment versions (async)...")
+                self.benchmark.start_phase("attachment_versions", num_versions)
+
+                created = await self.attachment_gen.create_attachment_versions_async(attachments, num_versions)
+
+                self.benchmark.end_phase("attachment_versions", created)
+                self._complete_phase("attachment_versions")
+                self.logger.info(f"Created {created} attachment versions")
 
 
 def setup_logging(prefix: str, verbose: bool = False) -> str:

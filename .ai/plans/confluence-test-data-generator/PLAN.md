@@ -449,57 +449,32 @@ git commit -m "feat: add blog post generator"
 
 ## Task 9: Attachment Generator (generators/attachments.py)
 
+**Status: COMPLETED**
+
 **Files:**
-- Create: `generators/attachments.py`
+- Created: `generators/attachments.py`
+- Created: `tests/test_attachments.py` (36 tests)
 
-**Step 1: Create attachments.py**
+**Implementation Notes:**
 
-```python
-class AttachmentGenerator(ConfluenceAPIClient):
-    """Generates Confluence attachments with small synthetic files."""
+The attachment generator was built with both sync and async methods using the legacy REST API v1 for multipart file uploads (v2 doesn't support attachment uploads).
 
-    # Small file sizes to minimize upload time (same as Jira)
-    FILE_SIZES = {
-        "tiny": 100,      # 100 bytes
-        "small": 1024,    # 1 KB
-        "medium": 5120,   # 5 KB
-    }
+1. **Pre-generated file pool**: 20 files (1-5 KB each) in 4 types (txt, json, csv, log), reused with random filename suffixes for uniqueness
+2. **Separate upload session**: Dedicated `_async_upload_session` with `X-Atlassian-Token: no-check` header (base session hardcodes JSON content type)
+3. **Attachment versioning**: Re-upload to `content/{pageId}/child/attachment/{attId}/data` creates a new version
+4. **Attachment labels**: Uses same legacy `content/{id}/label` endpoint as pages/blogposts
 
-    def _generate_file_content(self, size: int = 1024) -> bytes:
-        """Generate synthetic file content"""
+**API Endpoints Used:**
+- `POST /rest/api/content/{id}/child/attachment` - Upload attachment (multipart)
+- `POST /rest/api/content/{id}/child/attachment/{attId}/data` - Upload new version (multipart)
+- `POST /rest/api/content/{id}/label` - Add label to attachment
 
-    async def create_attachment_async(
-        self,
-        page_id: str,
-        filename: str,
-        content: bytes,
-        content_type: str = "application/octet-stream"
-    ) -> Optional[dict]:
-        """Create attachment via POST /wiki/api/v2/pages/{id}/attachments"""
+**Error handling improvements (applied project-wide):**
+- `suppress_errors` parameter on `_api_call_async()` — callers with their own retry logic (e.g., 409 conflicts) can suppress base-class ERROR logging
+- `_truncate_error_response()` — detects HTML error pages (5xx) and truncates to a short summary instead of dumping full HTML
+- Transient errors (5xx, connection) log at DEBUG during retries, only ERROR when all retries exhausted
 
-    async def create_attachments_async(
-        self,
-        page_ids: list[str],
-        count: int,
-        prefix: str
-    ) -> list[dict]:
-        """Create attachments distributed across pages"""
-
-    async def add_attachment_label_async(self, attachment_id: str, label: str) -> bool:
-    async def create_attachment_version_async(self, attachment_id: str, new_content: bytes) -> bool:
-```
-
-**Step 2: Verify imports work**
-
-Run: `python -c "from generators.attachments import AttachmentGenerator; print('OK')"`
-Expected: `OK`
-
-**Step 3: Commit**
-
-```bash
-git add generators/attachments.py
-git commit -m "feat: add attachment generator"
-```
+**Tests:** 36 tests covering file pool init, file generation, upload (sync/async), labels, versions, dry run, session cleanup
 
 ---
 

@@ -923,6 +923,11 @@ class PageGenerator(ConfluenceAPIClient):
             if self.dry_run:
                 return num_versions
 
+            # Brief settling delay to let Confluence finish background
+            # processing (search indexing, property HIBERNATEVERSION updates)
+            # before we start reading version numbers
+            await asyncio.sleep(1.0)
+
             # Get current version number once
             success, page_data = await self._api_call_async(
                 "GET", f"pages/{page_id}", params={"body-format": "storage"}
@@ -936,7 +941,7 @@ class PageGenerator(ConfluenceAPIClient):
             page_created = 0
 
             for _ in range(num_versions):
-                max_conflict_retries = 3
+                max_conflict_retries = 5
                 for retry in range(max_conflict_retries):
                     next_version = current_version + 1
                     new_body = f"<p>{self.generate_random_text(10, 30)}</p>"
@@ -954,15 +959,18 @@ class PageGenerator(ConfluenceAPIClient):
                         },
                     }
 
-                    success, _ = await self._api_call_async("PUT", f"pages/{page_id}", data=update_data)
+                    success, _ = await self._api_call_async(
+                        "PUT", f"pages/{page_id}", data=update_data, suppress_errors=(409,)
+                    )
                     if success:
                         current_version = next_version
                         page_created += 1
                         break
 
-                    # On failure, re-read the current version in case of 409 conflict
+                    # On failure, wait with exponential backoff then re-read
                     if retry < max_conflict_retries - 1:
-                        await asyncio.sleep(0.5 * (retry + 1))
+                        delay = min(2**retry, 8)  # 1s, 2s, 4s, 8s
+                        await asyncio.sleep(delay)
                         ok, fresh = await self._api_call_async(
                             "GET", f"pages/{page_id}", params={"body-format": "storage"}
                         )
