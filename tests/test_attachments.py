@@ -2,7 +2,9 @@
 
 from unittest.mock import patch
 
+import aiohttp
 import pytest
+import requests as requests_lib
 import responses
 from aioresponses import aioresponses
 
@@ -661,3 +663,459 @@ class TestAsyncDryRun:
 
         assert generator._async_session.closed
         assert generator._async_upload_session.closed
+
+
+class TestSyncUploadErrorPaths:
+    """Tests for sync upload error handling paths."""
+
+    @responses.activate
+    def test_upload_attachment_already_exists(self):
+        """Test that 'already exists' error is handled gracefully."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            json={"message": "file already exists on this content"},
+            status=400,
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        att = generator.upload_attachment("100001", "test_file.txt", b"content", "text/plain")
+        assert att is None
+
+    @responses.activate
+    def test_upload_attachment_client_error(self):
+        """Test that 4xx client errors are not retried."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            json={"message": "Forbidden"},
+            status=403,
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        att = generator.upload_attachment("100001", "test_file.txt", b"content", "text/plain")
+        assert att is None
+        # Should only have called once (no retry on 4xx)
+        assert len(responses.calls) == 1
+
+    @responses.activate
+    def test_upload_attachment_5xx_retries(self):
+        """Test that 5xx server errors are retried."""
+        # First two attempts fail with 500, third succeeds
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            json={"message": "Internal Server Error"},
+            status=500,
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            json={"message": "Internal Server Error"},
+            status=500,
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            json={"results": [{"id": "att001", "title": "test_file.txt"}]},
+            status=200,
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            att = generator.upload_attachment("100001", "test_file.txt", b"content", "text/plain")
+
+        assert att is not None
+        assert att["id"] == "att001"
+        assert len(responses.calls) == 3
+
+    @responses.activate
+    def test_upload_attachment_429_retries(self):
+        """Test that 429 rate limit responses are retried."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            json={"message": "Rate limited"},
+            status=429,
+            headers={"Retry-After": "1"},
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            json={"results": [{"id": "att001", "title": "test_file.txt"}]},
+            status=200,
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            att = generator.upload_attachment("100001", "test_file.txt", b"content", "text/plain")
+
+        assert att is not None
+        assert len(responses.calls) == 2
+
+    @responses.activate
+    def test_upload_attachment_connection_error(self):
+        """Test that connection errors are retried and eventually return None."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            body=requests_lib.exceptions.ConnectionError("Connection refused"),
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            body=requests_lib.exceptions.ConnectionError("Connection refused"),
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            body=requests_lib.exceptions.ConnectionError("Connection refused"),
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            att = generator.upload_attachment("100001", "test_file.txt", b"content", "text/plain")
+
+        assert att is None
+
+
+class TestSyncVersionErrorPaths:
+    """Tests for sync attachment version error handling paths."""
+
+    @responses.activate
+    def test_create_attachment_version_5xx_retries(self):
+        """Test that 5xx server errors are retried for versions."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+            json={"message": "Server Error"},
+            status=500,
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+            json={"id": "att001", "version": {"number": 2}},
+            status=200,
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            result = generator.create_attachment_version("100001", "att001", "file.txt")
+
+        assert result is True
+        assert len(responses.calls) == 2
+
+    @responses.activate
+    def test_create_attachment_version_client_error(self):
+        """Test that 4xx client errors fail fast."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+            json={"message": "Not Found"},
+            status=404,
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        result = generator.create_attachment_version("100001", "att001", "file.txt")
+        assert result is False
+        assert len(responses.calls) == 1
+
+    @responses.activate
+    def test_create_attachment_version_connection_error(self):
+        """Test that connection errors are retried for versions."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+            body=requests_lib.exceptions.ConnectionError("Connection refused"),
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+            body=requests_lib.exceptions.ConnectionError("Connection refused"),
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+            body=requests_lib.exceptions.ConnectionError("Connection refused"),
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            result = generator.create_attachment_version("100001", "att001", "file.txt")
+
+        assert result is False
+
+    @responses.activate
+    def test_create_attachment_version_429_retries(self):
+        """Test that 429 rate limit is retried for versions."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+            json={"message": "Rate limited"},
+            status=429,
+            headers={"Retry-After": "1"},
+        )
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+            json={"id": "att001", "version": {"number": 2}},
+            status=200,
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            result = generator.create_attachment_version("100001", "att001", "file.txt")
+
+        assert result is True
+
+    @responses.activate
+    def test_create_attachment_versions_progress_logging(self):
+        """Test that progress is logged every 50 versions."""
+        for _ in range(55):
+            responses.add(
+                responses.POST,
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment/att001/data",
+                json={"id": "att001", "version": {"number": 2}},
+                status=200,
+            )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        attachments = [{"id": "att001", "title": "file.txt", "pageId": "100001"}]
+        with patch("time.sleep"):
+            count = generator.create_attachment_versions(attachments, 55)
+
+        assert count == 55
+
+
+class TestAsyncUploadErrorPaths:
+    """Tests for async upload error handling paths."""
+
+    @pytest.mark.asyncio
+    async def test_upload_async_client_error(self):
+        """Test async upload handles 4xx errors."""
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                payload={"message": "Forbidden"},
+                status=403,
+            )
+
+            att = await generator.upload_attachment_async("100001", "test.txt", b"content", "text/plain")
+            assert att is None
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
+    async def test_upload_async_already_exists(self):
+        """Test async upload handles 'already exists' at debug level."""
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                payload={"message": "file already exists on this content"},
+                status=400,
+            )
+
+            att = await generator.upload_attachment_async("100001", "test.txt", b"content", "text/plain")
+            assert att is None
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
+    async def test_upload_async_server_error_retries(self):
+        """Test async upload retries on 5xx then succeeds."""
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                payload={"message": "Server Error"},
+                status=500,
+            )
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                payload={"results": [{"id": "att001", "title": "test.txt"}]},
+                status=200,
+            )
+
+            att = await generator.upload_attachment_async("100001", "test.txt", b"content", "text/plain")
+            assert att is not None
+            assert att["id"] == "att001"
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
+    async def test_upload_async_connection_error_retries(self):
+        """Test async upload retries on connection error."""
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                exception=aiohttp.ClientError("Connection refused"),
+            )
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                exception=aiohttp.ClientError("Connection refused"),
+            )
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                exception=aiohttp.ClientError("Connection refused"),
+            )
+
+            att = await generator.upload_attachment_async("100001", "test.txt", b"content", "text/plain")
+            assert att is None
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
+    async def test_create_attachments_async_logs_exceptions(self):
+        """Test that exceptions from asyncio.gather are logged."""
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                exception=aiohttp.ClientError("Connection refused"),
+            )
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                exception=aiohttp.ClientError("Connection refused"),
+            )
+            m.post(
+                f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+                exception=aiohttp.ClientError("Connection refused"),
+            )
+
+            attachments = await generator.create_attachments_async(["100001"], 1)
+            assert attachments == []
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
+    async def test_upload_async_dry_run(self):
+        """Test _upload_async in dry run mode."""
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+            dry_run=True,
+        )
+
+        success, result = await generator._upload_async(
+            f"{CONFLUENCE_URL}/rest/api/content/100001/child/attachment",
+            "test.txt",
+            b"content",
+            "text/plain",
+        )
+        assert success is True
+        assert result is None
+
+    @responses.activate
+    def test_upload_attachment_label_failure(self):
+        """Test that failed label addition returns False."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/rest/api/content/att001/label",
+            json={"message": "error"},
+            status=500,
+        )
+
+        generator = AttachmentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        result = generator.add_attachment_label("att001", "test-label")
+        assert result is False

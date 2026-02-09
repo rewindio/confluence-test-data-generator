@@ -366,6 +366,7 @@ class BlogPostGenerator(ConfluenceAPIClient):
         """Create a new version of a blog post by updating its content.
 
         Gets the current version number, then updates with incremented version.
+        Retries on 409 conflict with version re-read.
 
         Args:
             blogpost_id: The blog post ID
@@ -387,26 +388,36 @@ class BlogPostGenerator(ConfluenceAPIClient):
         blogpost_data = response.json()
         current_version = blogpost_data.get("version", {}).get("number", 1)
 
-        # Update with new content and incremented version
-        new_body = f"<p>{self.generate_random_text(10, 30)}</p>"
-        update_data = {
-            "id": blogpost_id,
-            "status": "current",
-            "title": title,
-            "body": {
-                "representation": "storage",
-                "value": new_body,
-            },
-            "version": {
-                "number": current_version + 1,
-                "message": f"Auto-generated version {current_version + 1}",
-            },
-        }
+        max_conflict_retries = 5
+        for retry in range(max_conflict_retries):
+            new_body = f"<p>{self.generate_random_text(10, 30)}</p>"
+            update_data = {
+                "id": blogpost_id,
+                "status": "current",
+                "title": title,
+                "body": {
+                    "representation": "storage",
+                    "value": new_body,
+                },
+                "version": {
+                    "number": current_version + 1,
+                    "message": f"Auto-generated version {current_version + 1}",
+                },
+            }
 
-        response = self._api_call("PUT", f"blogposts/{blogpost_id}", data=update_data)
-        if response:
-            self.logger.debug(f"Created version {current_version + 1} of blog post {blogpost_id}")
-            return True
+            response = self._api_call("PUT", f"blogposts/{blogpost_id}", data=update_data)
+            if response:
+                self.logger.debug(f"Created version {current_version + 1} of blog post {blogpost_id}")
+                return True
+
+            # On failure, re-read version and retry
+            if retry < max_conflict_retries - 1:
+                time.sleep(min(2**retry, 8))
+                fresh = self._api_call("GET", f"blogposts/{blogpost_id}", params={"body-format": "storage"})
+                if fresh:
+                    current_version = fresh.json().get("version", {}).get("number", current_version)
+
+        self.logger.warning(f"Failed to create version of blog post {blogpost_id} after {max_conflict_retries} retries")
         return False
 
     def create_blogpost_versions(
@@ -492,9 +503,10 @@ class BlogPostGenerator(ConfluenceAPIClient):
         spaces: list[dict[str, str]],
         count: int,
     ) -> list[dict[str, str]]:
-        """Create multiple blog posts asynchronously.
+        """Create multiple blog posts asynchronously with batching.
 
-        Blog posts are distributed evenly across spaces.
+        Blog posts have no hierarchy dependencies, so they can be created
+        in parallel batches for better throughput.
 
         Args:
             spaces: List of space dicts with 'key' and 'id'
@@ -506,18 +518,30 @@ class BlogPostGenerator(ConfluenceAPIClient):
         if not spaces:
             return []
 
-        self.logger.info(f"Creating {count} blog posts (async)...")
+        self.logger.info(f"Creating {count} blog posts (async, concurrency: {self.concurrency})...")
 
         created_blogposts: list[dict[str, str]] = []
+        batch_size = self.concurrency * 2
 
-        for i in range(count):
-            space = spaces[i % len(spaces)]
-            space_id = space["id"]
-            title = f"{self.prefix} Blog Post {i + 1}"
+        for batch_start in range(0, count, batch_size):
+            batch_end = min(batch_start + batch_size, count)
 
-            blogpost = await self.create_blogpost_async(space_id, title)
-            if blogpost:
-                created_blogposts.append(blogpost)
+            tasks = []
+            for i in range(batch_start, batch_end):
+                space = spaces[i % len(spaces)]
+                space_id = space["id"]
+                title = f"{self.prefix} Blog Post {i + 1}"
+                tasks.append(self.create_blogpost_async(space_id, title))
+
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, dict):
+                    created_blogposts.append(result)
+                elif isinstance(result, Exception):
+                    self._record_error()
+                    self.logger.error(f"Blog post creation failed with exception: {result}")
+
+            self.logger.info(f"Created {len(created_blogposts)}/{count} blog posts")
 
         self.created_blogposts = created_blogposts
         return created_blogposts

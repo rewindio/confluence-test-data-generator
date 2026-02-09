@@ -101,24 +101,33 @@ class AttachmentGenerator(ConfluenceAPIClient):
             lines.append(f'  "runId": "{self.run_id}",\n')
             lines.append(f'  "timestamp": "{datetime.now().isoformat()}",\n')
             lines.append('  "data": [\n')
-            while sum(len(line.encode()) for line in lines) < size - 20:
-                lines.append(f'    "{self.generate_random_text(3, 8)}",\n')
+            current_size = sum(len(line.encode()) for line in lines)
+            while current_size < size - 20:
+                line = f'    "{self.generate_random_text(3, 8)}",\n'
+                lines.append(line)
+                current_size += len(line.encode())
             lines.append('    "end"\n  ]\n}')
             return "".join(lines).encode()
 
         if ext == "csv":
             lines = ["id,name,description,value\n"]
+            current_size = len(lines[0].encode())
             row_num = 1
-            while sum(len(line.encode()) for line in lines) < size:
+            while current_size < size:
                 text = self.generate_random_text(3, 8)
-                lines.append(f"{row_num},{text},{self.generate_random_text(5, 12)},{random.randint(1, 1000)}\n")
+                line = f"{row_num},{text},{self.generate_random_text(5, 12)},{random.randint(1, 1000)}\n"
+                lines.append(line)
+                current_size += len(line.encode())
                 row_num += 1
             return "".join(lines).encode()
 
         # txt and log
         lines = []
-        while sum(len(line.encode()) for line in lines) < size:
-            lines.append(f"{self.generate_random_text(5, 15)}\n")
+        current_size = 0
+        while current_size < size:
+            line = f"{self.generate_random_text(5, 15)}\n"
+            lines.append(line)
+            current_size += len(line.encode())
         return "".join(lines).encode()
 
     def _get_random_file(self) -> tuple[str, bytes, str]:
@@ -184,10 +193,20 @@ class AttachmentGenerator(ConfluenceAPIClient):
                     error_text = response.text
                     if "already exists" in error_text.lower():
                         self.logger.debug(f"Attachment already exists: {filename} on {page_id}")
-                    else:
-                        self._record_error()
-                        self.logger.error(f"Upload failed ({response.status_code}): {filename} -> {page_id}")
-                        self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
+                        return None
+
+                    if 500 <= response.status_code < 600 and attempt < 2:
+                        # Server error - retry with backoff
+                        self.logger.debug(
+                            f"Upload got {response.status_code} for {filename}, retrying (attempt {attempt + 1}/3)"
+                        )
+                        time.sleep(2**attempt)
+                        continue
+
+                    # Non-retryable error or retries exhausted
+                    self._record_error()
+                    self.logger.error(f"Upload failed ({response.status_code}): {filename} -> {page_id}")
+                    self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
                     return None
 
                 result = response.json()
@@ -366,8 +385,20 @@ class AttachmentGenerator(ConfluenceAPIClient):
                     self.logger.debug(f"Created new version of attachment {attachment_id}")
                     return True
 
+                if 500 <= response.status_code < 600 and attempt < 2:
+                    # Server error - retry with backoff
+                    self.logger.debug(
+                        f"Attachment version got {response.status_code}, retrying "
+                        f"(attempt {attempt + 1}/3): {attachment_id}"
+                    )
+                    time.sleep(2**attempt)
+                    continue
+
+                # Non-retryable error or retries exhausted
                 self._record_error()
+                error_text = response.text
                 self.logger.error(f"Attachment version failed ({response.status_code}): {attachment_id}")
+                self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
                 return False
 
             except requests.exceptions.RequestException as e:
@@ -517,8 +548,6 @@ class AttachmentGenerator(ConfluenceAPIClient):
                                     f"Upload failed ({response.status}) after {max_retries} attempts: {filename}"
                                 )
                                 self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
-                            if response.status < 500:
-                                return (False, None)
                             return (False, None)
 
                         result = await response.json()
@@ -570,7 +599,8 @@ class AttachmentGenerator(ConfluenceAPIClient):
                 self.logger.debug(f"Uploaded attachment: {filename} -> {page_id}")
                 return {"id": att.get("id"), "title": att.get("title", filename)}
 
-        self.logger.warning(f"Failed to upload attachment '{filename}' to {page_id}")
+        # _upload_async already logs details (including "already exists" at DEBUG)
+        self.logger.debug(f"Failed to upload attachment '{filename}' to {page_id}")
         return None
 
     async def create_attachments_async(
@@ -611,6 +641,9 @@ class AttachmentGenerator(ConfluenceAPIClient):
                 if isinstance(result, dict):
                     result["pageId"] = batch_page_ids[j]
                     created_attachments.append(result)
+                elif isinstance(result, Exception):
+                    self._record_error()
+                    self.logger.error(f"Attachment upload failed with exception: {result}")
 
             self.logger.info(f"Created {len(created_attachments)}/{count} attachments")
 
@@ -683,6 +716,9 @@ class AttachmentGenerator(ConfluenceAPIClient):
             for result in results:
                 if result is True:
                     created += 1
+                elif isinstance(result, Exception):
+                    self._record_error()
+                    self.logger.error(f"Attachment label failed with exception: {result}")
 
             self.logger.info(f"Added {created}/{count} attachment labels")
 
@@ -753,6 +789,9 @@ class AttachmentGenerator(ConfluenceAPIClient):
             for result in results:
                 if result is True:
                     created += 1
+                elif isinstance(result, Exception):
+                    self._record_error()
+                    self.logger.error(f"Attachment version failed with exception: {result}")
 
             self.logger.info(f"Created {created}/{count} attachment versions")
 

@@ -611,6 +611,82 @@ class TestPageVersions:
         count = generator.create_page_versions([], 5)
         assert count == 0
 
+    @responses.activate
+    def test_create_page_version_retries_on_conflict(self):
+        """Test that sync page versioning retries on 409 conflict."""
+        # GET current version
+        responses.add(
+            responses.GET,
+            f"{CONFLUENCE_URL}/api/v2/pages/100001",
+            json={"version": {"number": 1}},
+        )
+        # First PUT fails with 409
+        responses.add(
+            responses.PUT,
+            f"{CONFLUENCE_URL}/api/v2/pages/100001",
+            json={"message": "Version conflict"},
+            status=409,
+        )
+        # Re-read version after conflict
+        responses.add(
+            responses.GET,
+            f"{CONFLUENCE_URL}/api/v2/pages/100001",
+            json={"version": {"number": 2}},
+        )
+        # Second PUT succeeds
+        responses.add(
+            responses.PUT,
+            f"{CONFLUENCE_URL}/api/v2/pages/100001",
+            json={"id": "100001", "version": {"number": 3}},
+        )
+
+        generator = PageGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            result = generator.create_page_version("100001", "Test Page")
+
+        assert result is True
+
+    @responses.activate
+    def test_create_page_version_exhausts_retries(self):
+        """Test that sync page versioning fails after max retries."""
+        # GET current version
+        responses.add(
+            responses.GET,
+            f"{CONFLUENCE_URL}/api/v2/pages/100001",
+            json={"version": {"number": 1}},
+        )
+        # All PUTs fail with 409
+        for _ in range(5):
+            responses.add(
+                responses.PUT,
+                f"{CONFLUENCE_URL}/api/v2/pages/100001",
+                json={"message": "Version conflict"},
+                status=409,
+            )
+            responses.add(
+                responses.GET,
+                f"{CONFLUENCE_URL}/api/v2/pages/100001",
+                json={"version": {"number": 1}},
+            )
+
+        generator = PageGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with patch("time.sleep"):
+            result = generator.create_page_version("100001", "Test Page")
+
+        assert result is False
+
 
 class TestAsyncPageOperations:
     """Tests for async page operations."""

@@ -189,7 +189,7 @@ class ConfluenceAPIClient:
             self.benchmark.record_error()
 
     @staticmethod
-    def _truncate_error_response(text: str, max_length: int = 200) -> str:
+    def _truncate_error_response(text: str | None, max_length: int = 200) -> str | None:
         """Truncate error response text, especially HTML error pages.
 
         Confluence sometimes returns full HTML pages for 5xx errors.
@@ -523,9 +523,6 @@ class ConfluenceAPIClient:
                                     f"API call failed ({response.status}) after {max_retries} attempts: {endpoint}"
                                 )
                                 self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
-                            # Don't retry on client errors (4xx) except 429 (rate limit)
-                            if response.status < 500:
-                                return (False, None)
                             return (False, None)
 
                         if response.status == 204:
