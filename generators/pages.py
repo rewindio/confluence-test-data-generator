@@ -402,6 +402,7 @@ class PageGenerator(ConfluenceAPIClient):
         """Create a new version of a page by updating its content.
 
         Gets the current version number, then updates with incremented version.
+        Retries on 409 conflict with version re-read.
 
         Args:
             page_id: The page ID
@@ -423,26 +424,36 @@ class PageGenerator(ConfluenceAPIClient):
         page_data = response.json()
         current_version = page_data.get("version", {}).get("number", 1)
 
-        # Update with new content and incremented version
-        new_body = f"<p>{self.generate_random_text(10, 30)}</p>"
-        update_data = {
-            "id": page_id,
-            "status": "current",
-            "title": title,
-            "body": {
-                "representation": "storage",
-                "value": new_body,
-            },
-            "version": {
-                "number": current_version + 1,
-                "message": f"Auto-generated version {current_version + 1}",
-            },
-        }
+        max_conflict_retries = 5
+        for retry in range(max_conflict_retries):
+            new_body = f"<p>{self.generate_random_text(10, 30)}</p>"
+            update_data = {
+                "id": page_id,
+                "status": "current",
+                "title": title,
+                "body": {
+                    "representation": "storage",
+                    "value": new_body,
+                },
+                "version": {
+                    "number": current_version + 1,
+                    "message": f"Auto-generated version {current_version + 1}",
+                },
+            }
 
-        response = self._api_call("PUT", f"pages/{page_id}", data=update_data)
-        if response:
-            self.logger.debug(f"Created version {current_version + 1} of page {page_id}")
-            return True
+            response = self._api_call("PUT", f"pages/{page_id}", data=update_data)
+            if response:
+                self.logger.debug(f"Created version {current_version + 1} of page {page_id}")
+                return True
+
+            # On failure, re-read version and retry
+            if retry < max_conflict_retries - 1:
+                time.sleep(min(2**retry, 8))
+                fresh = self._api_call("GET", f"pages/{page_id}", params={"body-format": "storage"})
+                if fresh:
+                    current_version = fresh.json().get("version", {}).get("number", current_version)
+
+        self.logger.warning(f"Failed to create version of page {page_id} after {max_conflict_retries} retries")
         return False
 
     def create_page_versions(
@@ -923,6 +934,11 @@ class PageGenerator(ConfluenceAPIClient):
             if self.dry_run:
                 return num_versions
 
+            # Brief settling delay to let Confluence finish background
+            # processing (search indexing, property HIBERNATEVERSION updates)
+            # before we start reading version numbers
+            await asyncio.sleep(1.0)
+
             # Get current version number once
             success, page_data = await self._api_call_async(
                 "GET", f"pages/{page_id}", params={"body-format": "storage"}
@@ -936,7 +952,7 @@ class PageGenerator(ConfluenceAPIClient):
             page_created = 0
 
             for _ in range(num_versions):
-                max_conflict_retries = 3
+                max_conflict_retries = 5
                 for retry in range(max_conflict_retries):
                     next_version = current_version + 1
                     new_body = f"<p>{self.generate_random_text(10, 30)}</p>"
@@ -954,15 +970,18 @@ class PageGenerator(ConfluenceAPIClient):
                         },
                     }
 
-                    success, _ = await self._api_call_async("PUT", f"pages/{page_id}", data=update_data)
+                    success, _ = await self._api_call_async(
+                        "PUT", f"pages/{page_id}", data=update_data, suppress_errors=(409,)
+                    )
                     if success:
                         current_version = next_version
                         page_created += 1
                         break
 
-                    # On failure, re-read the current version in case of 409 conflict
+                    # On failure, wait with exponential backoff then re-read
                     if retry < max_conflict_retries - 1:
-                        await asyncio.sleep(0.5 * (retry + 1))
+                        delay = min(2**retry, 8)  # 1s, 2s, 4s, 8s
+                        await asyncio.sleep(delay)
                         ok, fresh = await self._api_call_async(
                             "GET", f"pages/{page_id}", params={"body-format": "storage"}
                         )

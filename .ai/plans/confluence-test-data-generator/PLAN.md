@@ -449,57 +449,62 @@ git commit -m "feat: add blog post generator"
 
 ## Task 9: Attachment Generator (generators/attachments.py)
 
+**Status: COMPLETED**
+
 **Files:**
-- Create: `generators/attachments.py`
+- Created: `generators/attachments.py`
+- Created: `tests/test_attachments.py` (36 tests)
 
-**Step 1: Create attachments.py**
+**Implementation Notes:**
 
-```python
-class AttachmentGenerator(ConfluenceAPIClient):
-    """Generates Confluence attachments with small synthetic files."""
+The attachment generator was built with both sync and async methods using the legacy REST API v1 for multipart file uploads (v2 doesn't support attachment uploads).
 
-    # Small file sizes to minimize upload time (same as Jira)
-    FILE_SIZES = {
-        "tiny": 100,      # 100 bytes
-        "small": 1024,    # 1 KB
-        "medium": 5120,   # 5 KB
-    }
+1. **Pre-generated file pool**: 20 files (1-5 KB each) in 4 types (txt, json, csv, log), reused with random filename suffixes for uniqueness
+2. **Separate upload session**: Dedicated `_async_upload_session` with `X-Atlassian-Token: no-check` header (base session hardcodes JSON content type)
+3. **Attachment versioning**: Re-upload to `content/{pageId}/child/attachment/{attId}/data` creates a new version
+4. **Attachment labels**: Uses same legacy `content/{id}/label` endpoint as pages/blogposts
 
-    def _generate_file_content(self, size: int = 1024) -> bytes:
-        """Generate synthetic file content"""
+**API Endpoints Used:**
+- `POST /rest/api/content/{id}/child/attachment` - Upload attachment (multipart)
+- `POST /rest/api/content/{id}/child/attachment/{attId}/data` - Upload new version (multipart)
+- `POST /rest/api/content/{id}/label` - Add label to attachment
 
-    async def create_attachment_async(
-        self,
-        page_id: str,
-        filename: str,
-        content: bytes,
-        content_type: str = "application/octet-stream"
-    ) -> Optional[dict]:
-        """Create attachment via POST /wiki/api/v2/pages/{id}/attachments"""
+**Error handling improvements (applied project-wide):**
+- `suppress_errors` parameter on `_api_call_async()` — callers with their own retry logic (e.g., 409 conflicts) can suppress base-class ERROR logging
+- `_truncate_error_response()` — detects HTML error pages (5xx) and truncates to a short summary instead of dumping full HTML
+- Transient errors (5xx, connection) log at DEBUG during retries, only ERROR when all retries exhausted
 
-    async def create_attachments_async(
-        self,
-        page_ids: list[str],
-        count: int,
-        prefix: str
-    ) -> list[dict]:
-        """Create attachments distributed across pages"""
+**Tests:** 36 tests covering file pool init, file generation, upload (sync/async), labels, versions, dry run, session cleanup
 
-    async def add_attachment_label_async(self, attachment_id: str, label: str) -> bool:
-    async def create_attachment_version_async(self, attachment_id: str, new_content: bytes) -> bool:
-```
+---
 
-**Step 2: Verify imports work**
+## Task 9b: Attachment Checkpoint Resume Support
 
-Run: `python -c "from generators.attachments import AttachmentGenerator; print('OK')"`
-Expected: `OK`
+**Status: TODO**
 
-**Step 3: Commit**
+**Context:** During PR #14 code review, it was identified that the checkpoint system does not persist attachment metadata (attachment IDs, which pages they belong to). This means `--resume` cannot skip already-uploaded attachments or resume attachment label/version phases.
 
-```bash
-git add generators/attachments.py
-git commit -m "feat: add attachment generator"
-```
+**Files:**
+- Modify: `generators/checkpoint.py`
+- Modify: `generators/attachments.py`
+- Modify: `confluence_data_generator.py`
+- Modify: `tests/test_attachments.py`
+- Modify: `tests/test_checkpoint.py`
+
+**What's needed:**
+
+1. **Persist attachment metadata in checkpoint**: Store attachment IDs and their parent page/blogpost IDs so that on resume, the attachment phase can skip already-uploaded files and the label/version phases know which attachments exist.
+
+2. **Resume-aware attachment creation**: `create_attachments_async()` should check the checkpoint for already-created attachments and skip them, similar to how pages and blogposts handle resume.
+
+3. **Resume-aware label/version phases**: `add_attachment_labels_async()` and `create_attachment_versions_async()` should use checkpoint data to pick up where they left off.
+
+**Design considerations:**
+- Attachment counts can be large — checkpoint data structure should be space-efficient
+- Follow the existing pattern used for pages (`pages_per_space`, `page_ids`) in `CheckpointData`
+- Consider storing as `attachment_ids: list[str]` and `attachments_per_page: dict[str, int]`
+
+**PR Review Reference:** Comments #9 and #10 on PR #14
 
 ---
 
