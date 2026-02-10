@@ -92,6 +92,7 @@ class TemplateGenerator(ConfluenceAPIClient):
             return {
                 "templateId": f"dry-run-template-{space_key}-{index}",
                 "name": name,
+                "templateType": template_type,
                 "spaceKey": space_key,
             }
 
@@ -102,6 +103,7 @@ class TemplateGenerator(ConfluenceAPIClient):
             template = {
                 "templateId": result.get("templateId"),
                 "name": result.get("name"),
+                "templateType": result.get("templateType", template_type),
                 "spaceKey": space_key,
             }
             self.logger.info(f"Created template: {name}")
@@ -139,7 +141,8 @@ class TemplateGenerator(ConfluenceAPIClient):
             if template:
                 created_templates.append(template)
 
-            time.sleep(0.1)
+            if self.request_delay > 0:
+                time.sleep(self.request_delay)
 
         self.created_templates = created_templates
         return created_templates
@@ -182,6 +185,7 @@ class TemplateGenerator(ConfluenceAPIClient):
             return {
                 "templateId": f"dry-run-template-{space_key}-{index}",
                 "name": name,
+                "templateType": template_type,
                 "spaceKey": space_key,
             }
 
@@ -191,6 +195,7 @@ class TemplateGenerator(ConfluenceAPIClient):
             template = {
                 "templateId": result.get("templateId"),
                 "name": result.get("name"),
+                "templateType": result.get("templateType", template_type),
                 "spaceKey": space_key,
             }
             self.logger.info(f"Created template: {name}")

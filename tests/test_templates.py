@@ -3,6 +3,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import aiohttp
 import pytest
 import responses
 from aioresponses import aioresponses
@@ -161,8 +162,11 @@ class TestTemplateCreation:
 
         # Even indices -> "page", odd indices -> "blogpost"
         assert t0 is not None
+        assert t0["templateType"] == "page"
         assert t1 is not None
+        assert t1["templateType"] == "blogpost"
         assert t2 is not None
+        assert t2["templateType"] == "page"
 
     @responses.activate
     def test_create_templates_multiple(self):
@@ -348,8 +352,7 @@ class TestAsyncTemplateOperations:
             )
             m.post(
                 f"{CONFLUENCE_URL}/rest/api/template",
-                payload={"message": "error"},
-                status=400,
+                exception=aiohttp.ClientError("Connection refused"),
             )
 
             spaces = [{"key": "TEST1", "id": "10001"}]

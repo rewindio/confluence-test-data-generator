@@ -574,7 +574,7 @@ The comment generator was built with both sync and async methods for inline comm
 
 **Files:**
 - Created: `generators/templates.py` (~190 lines)
-- Created: `tests/test_templates.py` (22 tests)
+- Created: `tests/test_templates.py` (23 tests)
 - Modified: `generators/__init__.py` (added TemplateGenerator export)
 - Modified: `confluence_data_generator.py` (wired up template phase)
 

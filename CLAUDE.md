@@ -52,7 +52,7 @@
 │   ├── test_blogposts.py        # BlogPostGenerator tests (49 tests)
 │   ├── test_checkpoint.py       # CheckpointManager tests
 │   ├── test_comments.py         # CommentGenerator tests (44 tests)
-│   ├── test_templates.py        # TemplateGenerator tests (22 tests)
+│   ├── test_templates.py        # TemplateGenerator tests (23 tests)
 │   ├── test_attachments.py      # AttachmentGenerator tests (36 tests)
 │   ├── test_pages.py            # PageGenerator tests
 │   ├── test_spaces.py           # SpaceGenerator tests (53 tests)

@@ -323,7 +323,7 @@ class ConfluenceDataGenerator:
             if footer_comments:
                 self._create_footer_comment_versions_sync(footer_comments, counts)
 
-        # Phase 9: Create templates
+        # Create templates
         if not self.content_only:
             self._create_templates_sync(spaces, counts)
 
@@ -354,6 +354,8 @@ class ConfluenceDataGenerator:
         templates = self.template_gen.create_templates(spaces, remaining)
 
         self.benchmark.end_phase("templates", len(templates))
+        if self.checkpoint:
+            self.checkpoint.update_phase_count("templates", len(templates))
         self._complete_phase("templates")
 
         self.logger.info(f"Created {len(templates)} templates")
@@ -894,7 +896,7 @@ class ConfluenceDataGenerator:
                 if footer_comments:
                     await self._create_footer_comment_versions_async(footer_comments, counts)
 
-            # Phase 9: Create templates
+            # Create templates
             if not self.content_only:
                 await self._create_templates_async(spaces, counts)
 
@@ -933,6 +935,8 @@ class ConfluenceDataGenerator:
         templates = await self.template_gen.create_templates_async(spaces, remaining)
 
         self.benchmark.end_phase("templates", len(templates))
+        if self.checkpoint:
+            self.checkpoint.update_phase_count("templates", len(templates))
         self._complete_phase("templates")
 
         self.logger.info(f"Created {len(templates)} templates")
