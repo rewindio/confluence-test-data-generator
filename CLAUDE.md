@@ -509,7 +509,7 @@ When possible, run a quick manual test against a real Confluence instance after 
 | `--spaces` | No | Override number of spaces | calculated |
 | `--concurrency` | No | Max concurrent requests | `5` |
 | `--request-delay` | No | Delay between API calls in sync loops (seconds) | `0.0` |
-| `--settling-delay` | No | Delay before version creation to let Confluence settle | `1.0` |
+| `--settling-delay` | No | Delay before version creation to let Confluence settle | `0.0` |
 | `--content-only` | No | Only create spaces, pages, blogposts | `false` |
 | `--dry-run` | No | Preview without API calls | `false` |
 | `--resume` | No | Resume from checkpoint | `false` |

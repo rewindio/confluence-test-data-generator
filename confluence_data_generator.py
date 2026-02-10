@@ -112,7 +112,7 @@ class ConfluenceDataGenerator:
         dry_run: bool = False,
         concurrency: int = 5,
         request_delay: float = 0.0,
-        settling_delay: float = 1.0,
+        settling_delay: float = 0.0,
         content_only: bool = False,
         checkpoint_manager: CheckpointManager | None = None,
     ):

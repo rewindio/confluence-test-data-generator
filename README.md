@@ -208,7 +208,7 @@ python confluence_data_generator.py \
 | `--spaces` | Override number of spaces (otherwise calculated from multipliers) | auto |
 | `--concurrency` | Max concurrent requests | 5 |
 | `--request-delay` | Delay between API calls in sync loops (seconds). Useful for throttling on rate-limited instances. | 0.0 |
-| `--settling-delay` | Delay before version creation to let Confluence's eventual consistency settle (seconds). Set to 0 if the built-in retry-on-409 logic is sufficient. | 1.0 |
+| `--settling-delay` | Delay before version creation to let Confluence's eventual consistency settle (seconds). Defaults to 0 since retry-on-409 logic handles this automatically; increase if you see excessive 409 retries. | 0.0 |
 | `--content-only` | Only create spaces, pages, blogposts | false |
 | `--dry-run` | Preview without making API calls | false |
 | `--resume` | Resume from checkpoint | false |
