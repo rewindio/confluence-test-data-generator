@@ -546,11 +546,15 @@ class ConfluenceAPIClient:
         return (False, None)
 
     def get_current_user_account_id(self) -> str | None:
-        """Get the current user's account ID"""
+        """Get the current user's account ID.
+
+        Uses the v1 REST API since the v2 users endpoint returns 400.
+        """
         if self.dry_run:
             return "dry-run-account-id"
 
-        response = self._api_call("GET", "users/current")
+        base_url = f"{self.confluence_url}/rest/api"
+        response = self._api_call("GET", "user/current", base_url=base_url)
         if response:
             return response.json().get("accountId")
         return None

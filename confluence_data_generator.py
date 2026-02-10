@@ -564,6 +564,24 @@ class ConfluenceDataGenerator:
                 self._complete_phase("page_properties")
                 self.logger.info(f"Created {created} page properties")
 
+        # Page restrictions - uses v1 REST API with user account IDs
+        if not self._is_phase_complete("page_restrictions"):
+            num_restrictions = counts.get("page_restriction_v2", 0)
+            if num_restrictions > 0 and self.user_account_ids and pages:
+                self._start_phase("page_restrictions")
+                self.logger.info(f"\nCreating {num_restrictions} page restrictions...")
+                self.benchmark.start_phase("page_restrictions", num_restrictions)
+
+                created = self.page_gen.add_page_restrictions(page_ids, self.user_account_ids, num_restrictions)
+
+                self.benchmark.end_phase("page_restrictions", created)
+                if self.checkpoint:
+                    self.checkpoint.update_phase_count("page_restrictions", created)
+                self._complete_phase("page_restrictions")
+                self.logger.info(f"Created {created} page restrictions")
+            else:
+                self._complete_phase("page_restrictions")
+
         # Page versions
         if not self._is_phase_complete("page_versions"):
             num_versions = counts.get("page_version_v2", 0)
@@ -577,11 +595,6 @@ class ConfluenceDataGenerator:
                 self.benchmark.end_phase("page_versions", created)
                 self._complete_phase("page_versions")
                 self.logger.info(f"Created {created} page versions")
-
-        # Page restrictions - requires user account IDs
-        # Skip for now as it requires user lookup
-        # if not self._is_phase_complete("page_restrictions"):
-        #     ...
 
     def _create_blogposts_sync(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
         """Create blogposts synchronously.
@@ -1181,6 +1194,26 @@ class ConfluenceDataGenerator:
                 self.benchmark.end_phase("page_properties", created)
                 self._complete_phase("page_properties")
                 self.logger.info(f"Created {created} page properties")
+
+        # Page restrictions
+        if not self._is_phase_complete("page_restrictions"):
+            num_restrictions = counts.get("page_restriction_v2", 0)
+            if num_restrictions > 0 and self.user_account_ids and pages:
+                self._start_phase("page_restrictions")
+                self.logger.info(f"\nCreating {num_restrictions} page restrictions (async)...")
+                self.benchmark.start_phase("page_restrictions", num_restrictions)
+
+                created = await self.page_gen.add_page_restrictions_async(
+                    page_ids, self.user_account_ids, num_restrictions
+                )
+
+                self.benchmark.end_phase("page_restrictions", created)
+                if self.checkpoint:
+                    self.checkpoint.update_phase_count("page_restrictions", created)
+                self._complete_phase("page_restrictions")
+                self.logger.info(f"Created {created} page restrictions")
+            else:
+                self._complete_phase("page_restrictions")
 
         # Page versions
         if not self._is_phase_complete("page_versions"):
