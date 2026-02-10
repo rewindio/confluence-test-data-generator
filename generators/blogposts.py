@@ -29,6 +29,7 @@ class BlogPostGenerator(ConfluenceAPIClient):
         concurrency: int = 5,
         benchmark: Any | None = None,
         request_delay: float = 0.0,
+        settling_delay: float = 0.0,
         checkpoint: "CheckpointManager | None" = None,
     ):
         super().__init__(
@@ -39,6 +40,7 @@ class BlogPostGenerator(ConfluenceAPIClient):
             concurrency,
             benchmark,
             request_delay,
+            settling_delay,
         )
         self.prefix = prefix
         self.checkpoint = checkpoint
@@ -127,7 +129,8 @@ class BlogPostGenerator(ConfluenceAPIClient):
             if blogpost:
                 created_blogposts.append(blogpost)
 
-            time.sleep(0.1)
+            if self.request_delay > 0:
+                time.sleep(self.request_delay)
 
         self.created_blogposts = created_blogposts
         return created_blogposts
@@ -197,7 +200,8 @@ class BlogPostGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Added {created}/{count} blog post labels")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Blog post labels complete: {created} added")
         return created
@@ -266,7 +270,8 @@ class BlogPostGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Set {created}/{count} blog post properties")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Blog post properties complete: {created} set")
         return created
@@ -466,7 +471,8 @@ class BlogPostGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Created {created}/{count} blog post versions")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Blog post versions complete: {created} created")
         return created
@@ -539,7 +545,7 @@ class BlogPostGenerator(ConfluenceAPIClient):
         self.logger.info(f"Creating {count} blog posts (async, concurrency: {self.concurrency})...")
 
         created_blogposts: list[dict[str, str]] = []
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -616,7 +622,7 @@ class BlogPostGenerator(ConfluenceAPIClient):
         ]
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -679,7 +685,7 @@ class BlogPostGenerator(ConfluenceAPIClient):
         self.logger.info(f"Setting {count} blog post properties (async, concurrency: {self.concurrency})...")
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -806,7 +812,7 @@ class BlogPostGenerator(ConfluenceAPIClient):
                 break
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, len(restriction_specs), batch_size):
             batch_end = min(batch_start + batch_size, len(restriction_specs))
@@ -938,7 +944,8 @@ class BlogPostGenerator(ConfluenceAPIClient):
             # Brief settling delay to let Confluence finish background
             # processing (search indexing, property HIBERNATEVERSION updates)
             # before we start reading version numbers
-            await asyncio.sleep(1.0)
+            if self.settling_delay > 0:
+                await asyncio.sleep(self.settling_delay)
 
             # Get current version number once
             success, bp_data = await self._api_call_async(

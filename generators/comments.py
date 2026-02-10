@@ -29,6 +29,7 @@ class CommentGenerator(ConfluenceAPIClient):
         concurrency: int = 5,
         benchmark: Any | None = None,
         request_delay: float = 0.0,
+        settling_delay: float = 0.0,
         checkpoint: "CheckpointManager | None" = None,
     ):
         super().__init__(
@@ -39,6 +40,7 @@ class CommentGenerator(ConfluenceAPIClient):
             concurrency,
             benchmark,
             request_delay,
+            settling_delay,
         )
         self.prefix = prefix
         self.checkpoint = checkpoint
@@ -190,7 +192,8 @@ class CommentGenerator(ConfluenceAPIClient):
             if comment:
                 created_comments.append(comment)
 
-            time.sleep(0.1)
+            if self.request_delay > 0:
+                time.sleep(self.request_delay)
 
         self.created_footer_comments = created_comments
         return created_comments
@@ -280,7 +283,8 @@ class CommentGenerator(ConfluenceAPIClient):
             if comment:
                 created_comments.append(comment)
 
-            time.sleep(0.1)
+            if self.request_delay > 0:
+                time.sleep(self.request_delay)
 
         self.created_inline_comments = created_comments
         return created_comments
@@ -376,7 +380,8 @@ class CommentGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Created {created}/{count} {comment_type} comment versions")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"{comment_type.capitalize()} comment versions complete: {created} created")
         return created
@@ -443,7 +448,7 @@ class CommentGenerator(ConfluenceAPIClient):
         self.logger.info(f"Creating {count} footer comments (async, concurrency: {self.concurrency})...")
 
         created_comments: list[dict[str, str]] = []
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -540,7 +545,7 @@ class CommentGenerator(ConfluenceAPIClient):
         self.logger.info(f"Creating {count} inline comments (async, concurrency: {self.concurrency})...")
 
         created_comments: list[dict[str, str]] = []
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -680,8 +685,9 @@ class CommentGenerator(ConfluenceAPIClient):
             if self.dry_run:
                 return num_versions
 
-            # Brief settling delay
-            await asyncio.sleep(1.0)
+            # Brief settling delay to let Confluence finish background processing
+            if self.settling_delay > 0:
+                await asyncio.sleep(self.settling_delay)
 
             # Get current version number once
             success, c_data = await self._api_call_async(

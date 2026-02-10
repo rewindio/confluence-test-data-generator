@@ -48,6 +48,7 @@ class AttachmentGenerator(ConfluenceAPIClient):
         concurrency: int = 5,
         benchmark: Any | None = None,
         request_delay: float = 0.0,
+        settling_delay: float = 0.0,
         checkpoint: "CheckpointManager | None" = None,
     ):
         super().__init__(
@@ -58,6 +59,7 @@ class AttachmentGenerator(ConfluenceAPIClient):
             concurrency,
             benchmark,
             request_delay,
+            settling_delay,
         )
         self.prefix = prefix
         self.checkpoint = checkpoint
@@ -256,7 +258,8 @@ class AttachmentGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Created {len(created_attachments)}/{count} attachments")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.created_attachments = created_attachments
         return created_attachments
@@ -326,7 +329,8 @@ class AttachmentGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Added {created}/{count} attachment labels")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Attachment labels complete: {created} added")
         return created
@@ -437,7 +441,8 @@ class AttachmentGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Created {created}/{count} attachment versions")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Attachment versions complete: {created} created")
         return created
@@ -623,7 +628,7 @@ class AttachmentGenerator(ConfluenceAPIClient):
         self.logger.info(f"Creating {count} attachments (async, concurrency: {self.concurrency})...")
 
         created_attachments: list[dict[str, str]] = []
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -700,7 +705,7 @@ class AttachmentGenerator(ConfluenceAPIClient):
         ]
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -775,7 +780,7 @@ class AttachmentGenerator(ConfluenceAPIClient):
         self.logger.info(f"Creating {count} attachment versions (async, concurrency: {self.concurrency})...")
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)

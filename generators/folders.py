@@ -29,6 +29,7 @@ class FolderGenerator(ConfluenceAPIClient):
         concurrency: int = 5,
         benchmark: Any | None = None,
         request_delay: float = 0.0,
+        settling_delay: float = 0.0,
         checkpoint: "CheckpointManager | None" = None,
     ):
         super().__init__(
@@ -39,6 +40,7 @@ class FolderGenerator(ConfluenceAPIClient):
             concurrency,
             benchmark,
             request_delay,
+            settling_delay,
         )
         self.prefix = prefix
         self.checkpoint = checkpoint
@@ -291,7 +293,7 @@ class FolderGenerator(ConfluenceAPIClient):
         self.logger.info(f"Creating {count} folders (async, concurrency: {self.concurrency})...")
 
         created_folders: list[dict[str, str]] = []
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -408,7 +410,7 @@ class FolderGenerator(ConfluenceAPIClient):
                 break
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, len(restriction_specs), batch_size):
             batch_end = min(batch_start + batch_size, len(restriction_specs))

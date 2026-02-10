@@ -29,6 +29,7 @@ class SpaceGenerator(ConfluenceAPIClient):
         concurrency: int = 5,
         benchmark: Any | None = None,
         request_delay: float = 0.0,
+        settling_delay: float = 0.0,
         checkpoint: "CheckpointManager | None" = None,
     ):
         super().__init__(
@@ -39,6 +40,7 @@ class SpaceGenerator(ConfluenceAPIClient):
             concurrency,
             benchmark,
             request_delay,
+            settling_delay,
         )
         self.prefix = prefix
         self.checkpoint = checkpoint
@@ -146,8 +148,8 @@ class SpaceGenerator(ConfluenceAPIClient):
             if space:
                 created_spaces.append(space)
 
-            # Small delay to avoid rate limiting
-            time.sleep(0.3)
+            if self.request_delay > 0:
+                time.sleep(self.request_delay)
 
         self.created_spaces = created_spaces
         return created_spaces
@@ -220,7 +222,8 @@ class SpaceGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Added {created}/{count} space labels")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Space labels complete: {created} added")
         return created
@@ -302,7 +305,8 @@ class SpaceGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Added {created}/{count} space categories")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Space categories complete: {created} added")
         return created
@@ -357,7 +361,7 @@ class SpaceGenerator(ConfluenceAPIClient):
         ]
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -443,7 +447,8 @@ class SpaceGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Set {created}/{count} space properties")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Space properties complete: {created} set")
         return created
@@ -669,7 +674,8 @@ class SpaceGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 10 == 0:
                 self.logger.info(f"Configured {created}/{count} space look and feel settings")
-                time.sleep(0.3)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Space look and feel complete: {created} configured")
         return created
@@ -795,7 +801,7 @@ class SpaceGenerator(ConfluenceAPIClient):
         ]
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -858,7 +864,7 @@ class SpaceGenerator(ConfluenceAPIClient):
         self.logger.info(f"Setting {count} space properties (async, concurrency: {self.concurrency})...")
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -976,7 +982,7 @@ class SpaceGenerator(ConfluenceAPIClient):
                 break
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, len(assignment_specs), batch_size):
             batch = assignment_specs[batch_start : batch_start + batch_size]

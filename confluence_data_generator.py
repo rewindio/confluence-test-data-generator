@@ -112,6 +112,7 @@ class ConfluenceDataGenerator:
         dry_run: bool = False,
         concurrency: int = 5,
         request_delay: float = 0.0,
+        settling_delay: float = 1.0,
         content_only: bool = False,
         checkpoint_manager: CheckpointManager | None = None,
     ):
@@ -126,6 +127,7 @@ class ConfluenceDataGenerator:
             dry_run: If True, don't make API calls
             concurrency: Number of concurrent requests
             request_delay: Delay between requests in seconds
+            settling_delay: Delay before version creation in seconds
             content_only: If True, only create spaces, pages, blogposts
             checkpoint_manager: Optional checkpoint manager for resumable runs
         """
@@ -137,6 +139,7 @@ class ConfluenceDataGenerator:
         self.dry_run = dry_run
         self.concurrency = concurrency
         self.request_delay = request_delay
+        self.settling_delay = settling_delay
         self.content_only = content_only
         self.checkpoint = checkpoint_manager
 
@@ -168,6 +171,7 @@ class ConfluenceDataGenerator:
             "concurrency": self.concurrency,
             "benchmark": self.benchmark,
             "request_delay": self.request_delay,
+            "settling_delay": self.settling_delay,
         }
 
         # Initialize space generator
@@ -1822,6 +1826,12 @@ Checkpointing:
         help="Delay between requests in seconds (default: 0)",
     )
     parser.add_argument(
+        "--settling-delay",
+        type=float,
+        default=0.0,
+        help="Delay before version creation to let Confluence settle (default: 0). Retry-on-409 logic handles eventual consistency automatically; increase if you see excessive 409 retries.",
+    )
+    parser.add_argument(
         "--content-only",
         action="store_true",
         help="Only create spaces, pages, and blogposts (skip labels, properties, etc.)",
@@ -1942,6 +1952,7 @@ Checkpointing:
         dry_run=args.dry_run,
         concurrency=args.concurrency,
         request_delay=args.request_delay,
+        settling_delay=args.settling_delay,
         content_only=args.content_only,
         checkpoint_manager=checkpoint_manager,
     )

@@ -54,6 +54,12 @@ Based on the size bucket you choose, the tool creates:
 
 Most item counts are derived from multipliers in `item_type_multipliers.csv`. **Space permissions are the exception** — they are not in the CSV. Instead, the count is computed dynamically as `num_spaces × num_discovered_users × num_available_roles`. Users are auto-discovered from the Confluence instance, and roles are fetched from the v2 Space Roles API.
 
+## Prerequisites
+
+- Python 3.12 or higher
+- An Atlassian Cloud account with admin access
+- An Atlassian API token
+
 ## Installation
 
 ```bash
@@ -62,8 +68,8 @@ git clone https://github.com/rewindio/confluence-test-data-generator.git
 cd confluence-test-data-generator
 
 # Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+python3 -m venv .venv
+source .venv/bin/activate  # or `.venv\Scripts\activate` on Windows
 
 # Install dependencies
 pip install -r requirements.txt
@@ -196,12 +202,13 @@ python confluence_data_generator.py \
 |--------|-------------|---------|
 | `--url` | Confluence Cloud URL (required) | - |
 | `--email` | Atlassian account email (required) | - |
-| `--count` | Target content count (required) | - |
-| `--size` | Size bucket: small, medium, large | small |
+| `--count` | Target number of content items — pages + blogposts (required). Other item types (spaces, attachments, comments, etc.) are derived from multipliers in the CSV. | - |
 | `--prefix` | Label/property prefix for tagging | TESTDATA |
-| `--users` | Number of synthetic users to create | 10 |
+| `--size` | Size bucket: small, medium, large | small |
+| `--spaces` | Override number of spaces (otherwise calculated from multipliers) | auto |
 | `--concurrency` | Max concurrent requests | 5 |
-| `--request-delay` | Base delay between requests (seconds) | 0.0 |
+| `--request-delay` | Delay between API calls in sync loops (seconds). Useful for throttling on rate-limited instances. | 0.0 |
+| `--settling-delay` | Delay before version creation to let Confluence's eventual consistency settle (seconds). Set to 0 if the built-in retry-on-409 logic is sufficient. | 1.0 |
 | `--content-only` | Only create spaces, pages, blogposts | false |
 | `--dry-run` | Preview without making API calls | false |
 | `--resume` | Resume from checkpoint | false |
@@ -231,6 +238,18 @@ For example, with `--count 1000 --size small`:
 - ~659 attachments
 - ~83 inline comments
 - etc.
+
+## Cleanup
+
+All generated content is tagged with the prefix label (default: `TESTDATA`), making it easy to identify. To remove generated data, delete the spaces created during the run:
+
+```bash
+# Delete a generated space by key (permanent — does not go to trash)
+curl -s -u "your.email@company.com:$CONFLUENCE_API_TOKEN" \
+  -X DELETE "https://yourcompany.atlassian.net/wiki/rest/api/space/TESTDATA1"
+```
+
+The API returns 202 (accepted) and the space — along with all its pages, blogposts, attachments, and comments — is permanently removed.
 
 ## Development
 

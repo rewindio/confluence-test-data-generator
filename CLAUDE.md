@@ -36,10 +36,10 @@
 ├── confluence_user_generator.py  # Standalone user/group generator (DONE)
 ├── generators/                   # Modular generators package
 │   ├── __init__.py              # Package exports
-│   ├── base.py                  # ConfluenceAPIClient, RateLimitState (~680 lines)
-│   ├── benchmark.py             # BenchmarkTracker, PhaseMetrics (~400 lines)
+│   ├── base.py                  # ConfluenceAPIClient, RateLimitState (~694 lines)
+│   ├── benchmark.py             # BenchmarkTracker, PhaseMetrics (~489 lines)
 │   ├── blogposts.py             # BlogPostGenerator (DONE)
-│   ├── checkpoint.py            # CheckpointManager (~620 lines)
+│   ├── checkpoint.py            # CheckpointManager (~696 lines)
 │   ├── folders.py               # FolderGenerator (DONE)
 │   ├── spaces.py                # SpaceGenerator (DONE)
 │   ├── pages.py                 # PageGenerator (DONE)
@@ -48,16 +48,16 @@
 │   └── templates.py             # TemplateGenerator (DONE)
 ├── tests/                        # Unit tests (90%+ coverage required)
 │   ├── conftest.py              # Shared pytest fixtures
-│   ├── test_base.py             # ConfluenceAPIClient tests
-│   ├── test_benchmark.py        # BenchmarkTracker tests
+│   ├── test_base.py             # ConfluenceAPIClient tests (73 tests)
+│   ├── test_benchmark.py        # BenchmarkTracker tests (75 tests)
 │   ├── test_blogposts.py        # BlogPostGenerator tests (49 tests)
-│   ├── test_checkpoint.py       # CheckpointManager tests
-│   ├── test_comments.py         # CommentGenerator tests (44 tests)
-│   ├── test_folders.py          # FolderGenerator tests
+│   ├── test_checkpoint.py       # CheckpointManager tests (65 tests)
+│   ├── test_comments.py         # CommentGenerator tests (53 tests)
+│   ├── test_folders.py          # FolderGenerator tests (39 tests)
 │   ├── test_templates.py        # TemplateGenerator tests (23 tests)
-│   ├── test_attachments.py      # AttachmentGenerator tests (36 tests)
-│   ├── test_pages.py            # PageGenerator tests
-│   ├── test_spaces.py           # SpaceGenerator tests (53 tests)
+│   ├── test_attachments.py      # AttachmentGenerator tests (53 tests)
+│   ├── test_pages.py            # PageGenerator tests (52 tests)
+│   ├── test_spaces.py           # SpaceGenerator tests (55 tests)
 │   └── test_user_generator.py   # User generator tests (51 tests)
 ├── .github/workflows/
 │   ├── test.yml                 # Tests with 90% coverage threshold
@@ -497,18 +497,19 @@ When possible, run a quick manual test against a real Confluence instance after 
 
 ---
 
-## Command Line Options (Planned)
+## Command Line Options
 
 | Option | Required | Description | Default |
 |--------|----------|-------------|---------|
 | `--url` | Yes | Confluence instance URL | - |
 | `--email` | Yes | Atlassian account email | - |
-| `--count` | Yes | Target content count | - |
-| `--size` | No | Size bucket: small, medium, large | `small` |
+| `--count` | Yes | Target number of content items (pages + blogposts) | - |
 | `--prefix` | No | Label/property prefix | `TESTDATA` |
-| `--users` | No | Number of synthetic users | `10` |
+| `--size` | No | Size bucket: small, medium, large | `small` |
+| `--spaces` | No | Override number of spaces | calculated |
 | `--concurrency` | No | Max concurrent requests | `5` |
-| `--request-delay` | No | Base delay between requests | `0.0` |
+| `--request-delay` | No | Delay between API calls in sync loops (seconds) | `0.0` |
+| `--settling-delay` | No | Delay before version creation to let Confluence settle | `1.0` |
 | `--content-only` | No | Only create spaces, pages, blogposts | `false` |
 | `--dry-run` | No | Preview without API calls | `false` |
 | `--resume` | No | Resume from checkpoint | `false` |

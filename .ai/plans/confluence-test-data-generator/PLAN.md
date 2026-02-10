@@ -1133,17 +1133,23 @@ Created `generators/folders.py` with `FolderGenerator` class (sync + async metho
 
 ## Task E: Performance Improvements
 
-**Status: NOT STARTED**
+**Status: COMPLETED**
 
-Investigate and implement performance improvements to increase throughput for large-scale data generation.
+Three independent sub-tasks to reduce wasted time from hard-coded delays and suboptimal batching:
 
-**Scope (to be refined during planning):**
-- Profile current bottlenecks (rate limiting vs. serial operations vs. connection overhead)
-- Consider batch API endpoints where available
-- Optimize async concurrency (connection pooling, batch sizes)
-- Reduce unnecessary API calls (e.g., fetching page body for every inline comment)
-- Consider parallel space processing for independent operations
-- Benchmark before/after to quantify improvements
+**E1: Replace hard-coded sleeps with `self.request_delay`** — COMPLETED
+- Replaced 19 hard-coded `time.sleep()` calls across `spaces.py`, `pages.py`, `blogposts.py`, `comments.py`, and `attachments.py`
+- All now use `if self.request_delay > 0: time.sleep(self.request_delay)` pattern
+- Did NOT change retry backoff sleeps in `base.py` or 409 conflict retry sleeps
+
+**E2: Make version settling delay configurable** — COMPLETED
+- Added `settling_delay` parameter to `ConfluenceAPIClient.__init__()` (default 1.0)
+- Added `--settling-delay` CLI option in `confluence_data_generator.py`
+- Replaced `await asyncio.sleep(1.0)` with conditional `self.settling_delay` in `pages.py`, `blogposts.py`, `comments.py`
+
+**E3: Increase async batch size multiplier** — COMPLETED
+- Changed `self.concurrency * 2` to `self.concurrency * 4` in all 19 locations across 7 files
+- Reduces gather/batch cycles by 50% with no downside (semaphore still controls concurrency)
 
 ---
 
