@@ -32,7 +32,7 @@ class TemplateGenerator(ConfluenceAPIClient):
         concurrency: int = 5,
         benchmark: Any | None = None,
         request_delay: float = 0.0,
-        settling_delay: float = 1.0,
+        settling_delay: float = 0.0,
         checkpoint: "CheckpointManager | None" = None,
     ):
         super().__init__(

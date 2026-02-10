@@ -120,7 +120,7 @@ class ConfluenceAPIClient:
         concurrency: int = 5,
         benchmark: Any | None = None,
         request_delay: float = 0.0,
-        settling_delay: float = 1.0,
+        settling_delay: float = 0.0,
     ):
         self.confluence_url = confluence_url.rstrip("/")
         self.email = email

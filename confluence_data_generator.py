@@ -1828,8 +1828,8 @@ Checkpointing:
     parser.add_argument(
         "--settling-delay",
         type=float,
-        default=1.0,
-        help="Delay before version creation to let Confluence settle (default: 1.0)",
+        default=0.0,
+        help="Delay before version creation to let Confluence settle (default: 0). Retry-on-409 logic handles eventual consistency automatically; increase if you see excessive 409 retries.",
     )
     parser.add_argument(
         "--content-only",
