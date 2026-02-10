@@ -1153,3 +1153,29 @@ Investigate and implement performance improvements to increase throughput for la
 - Reduce unnecessary API calls (e.g., fetching page body for every inline comment)
 - Consider parallel space processing for independent operations
 - Benchmark before/after to quantify improvements
+
+---
+
+## Task F: Fix `@responses.activate` on Async Tests
+
+**Status: NOT STARTED**
+
+`@responses.activate` as a decorator on `async def` test functions can deactivate the mock before the coroutine finishes, causing flaky or non-functional tests. Replace with `responses.RequestsMock()` context manager in all affected async tests.
+
+**Affected files:**
+- `tests/test_pages.py:907` — `test_add_page_restrictions_async_multiple` (uses `@responses.activate` on async def for current-user mock via `asyncio.to_thread`)
+
+**Fix pattern** (already applied in `test_blogposts.py` during PR #20):
+```python
+# BAD — decorator may deactivate before coroutine awaits
+@responses.activate
+async def test_foo(self):
+    responses.add(...)
+    result = await some_async_call()
+
+# GOOD — context manager stays active through entire coroutine
+async def test_foo(self):
+    with responses.RequestsMock() as rsps:
+        rsps.add(...)
+        result = await some_async_call()
+```
