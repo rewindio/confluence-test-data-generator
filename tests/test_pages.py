@@ -904,17 +904,8 @@ class TestAsyncPageOperations:
         await generator._close_async_session()
 
     @pytest.mark.asyncio
-    @responses.activate
     async def test_add_page_restrictions_async_multiple(self):
         """Test adding multiple restrictions asynchronously."""
-        # Mock current user lookup (sync call via asyncio.to_thread)
-        responses.add(
-            responses.GET,
-            f"{CONFLUENCE_URL}/rest/api/user/current",
-            json={"accountId": "current-user-id"},
-            status=200,
-        )
-
         generator = PageGenerator(
             confluence_url=CONFLUENCE_URL,
             email=TEST_EMAIL,
@@ -922,25 +913,36 @@ class TestAsyncPageOperations:
             prefix=TEST_PREFIX,
         )
 
-        with aioresponses() as m:
-            for _ in range(4):
-                m.put(
-                    f"{CONFLUENCE_URL}/rest/api/content/100001/restriction",
-                    payload={"results": []},
-                    status=200,
-                )
-                m.put(
-                    f"{CONFLUENCE_URL}/rest/api/content/100002/restriction",
-                    payload={"results": []},
-                    status=200,
-                )
-
-            count = await generator.add_page_restrictions_async(
-                page_ids=["100001", "100002"],
-                user_account_ids=["user-1", "user-2"],
-                count=4,
+        # Use context manager instead of @responses.activate to avoid
+        # early deactivation before the async coroutine completes.
+        with responses.RequestsMock() as rsps:
+            # Mock current user lookup (sync call via asyncio.to_thread)
+            rsps.add(
+                responses.GET,
+                f"{CONFLUENCE_URL}/rest/api/user/current",
+                json={"accountId": "current-user-id"},
+                status=200,
             )
-            assert count == 4
+
+            with aioresponses() as m:
+                for _ in range(4):
+                    m.put(
+                        f"{CONFLUENCE_URL}/rest/api/content/100001/restriction",
+                        payload={"results": []},
+                        status=200,
+                    )
+                    m.put(
+                        f"{CONFLUENCE_URL}/rest/api/content/100002/restriction",
+                        payload={"results": []},
+                        status=200,
+                    )
+
+                count = await generator.add_page_restrictions_async(
+                    page_ids=["100001", "100002"],
+                    user_account_ids=["user-1", "user-2"],
+                    count=4,
+                )
+                assert count == 4
 
         await generator._close_async_session()
 

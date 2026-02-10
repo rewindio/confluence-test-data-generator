@@ -939,7 +939,6 @@ class TestAsyncSpaceOperations:
 
         await generator._close_async_session()
 
-    @responses.activate
     @pytest.mark.asyncio
     async def test_add_space_permissions_async_multiple(self):
         """Test adding multiple role assignments asynchronously."""
@@ -950,38 +949,41 @@ class TestAsyncSpaceOperations:
             prefix=TEST_PREFIX,
         )
 
-        # Mock get_space_roles (sync call within async method)
-        responses.add(
-            responses.GET,
-            f"{CONFLUENCE_URL}/api/v2/space-roles",
-            json={
-                "results": [
-                    {"id": "role-1", "name": "Collaborator"},
-                    {"id": "role-2", "name": "Viewer"},
-                ]
-            },
-            status=200,
-        )
-
-        with aioresponses() as m:
-            for _ in range(10):
-                m.post(
-                    f"{CONFLUENCE_URL}/api/v2/spaces/10001/role-assignments",
-                    payload={"results": [{"roleId": "role-1"}]},
-                    status=200,
-                )
-                m.post(
-                    f"{CONFLUENCE_URL}/api/v2/spaces/10002/role-assignments",
-                    payload={"results": [{"roleId": "role-1"}]},
-                    status=200,
-                )
-
-            count = await generator.add_space_permissions_async(
-                space_ids=["10001", "10002"],
-                user_account_ids=["user-1", "user-2"],
-                count=6,
+        # Use context manager instead of @responses.activate to avoid
+        # early deactivation before the async coroutine completes.
+        with responses.RequestsMock() as rsps:
+            # Mock get_space_roles (sync call within async method)
+            rsps.add(
+                responses.GET,
+                f"{CONFLUENCE_URL}/api/v2/space-roles",
+                json={
+                    "results": [
+                        {"id": "role-1", "name": "Collaborator"},
+                        {"id": "role-2", "name": "Viewer"},
+                    ]
+                },
+                status=200,
             )
-            assert count == 6
+
+            with aioresponses() as m:
+                for _ in range(10):
+                    m.post(
+                        f"{CONFLUENCE_URL}/api/v2/spaces/10001/role-assignments",
+                        payload={"results": [{"roleId": "role-1"}]},
+                        status=200,
+                    )
+                    m.post(
+                        f"{CONFLUENCE_URL}/api/v2/spaces/10002/role-assignments",
+                        payload={"results": [{"roleId": "role-1"}]},
+                        status=200,
+                    )
+
+                count = await generator.add_space_permissions_async(
+                    space_ids=["10001", "10002"],
+                    user_account_ids=["user-1", "user-2"],
+                    count=6,
+                )
+                assert count == 6
 
         await generator._close_async_session()
 

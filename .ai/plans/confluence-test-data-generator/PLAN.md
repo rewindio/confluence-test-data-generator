@@ -1149,24 +1149,12 @@ Investigate and implement performance improvements to increase throughput for la
 
 ## Task F: Fix `@responses.activate` on Async Tests
 
-**Status: NOT STARTED**
+**Status: COMPLETED**
 
-`@responses.activate` as a decorator on `async def` test functions can deactivate the mock before the coroutine finishes, causing flaky or non-functional tests. Replace with `responses.RequestsMock()` context manager in all affected async tests.
+Replaced `@responses.activate` decorator with `responses.RequestsMock()` context manager on all async test functions that used it. The decorator can deactivate the mock before the async coroutine finishes, causing flaky tests.
 
-**Affected files:**
-- `tests/test_pages.py:907` — `test_add_page_restrictions_async_multiple` (uses `@responses.activate` on async def for current-user mock via `asyncio.to_thread`)
+**Fixed files:**
+- `tests/test_pages.py` — `test_add_page_restrictions_async_multiple`
+- `tests/test_spaces.py` — `test_add_space_permissions_async_multiple`
 
-**Fix pattern** (already applied in `test_blogposts.py` during PR #20):
-```python
-# BAD — decorator may deactivate before coroutine awaits
-@responses.activate
-async def test_foo(self):
-    responses.add(...)
-    result = await some_async_call()
-
-# GOOD — context manager stays active through entire coroutine
-async def test_foo(self):
-    with responses.RequestsMock() as rsps:
-        rsps.add(...)
-        result = await some_async_call()
-```
+Fix pattern was already applied in `test_blogposts.py` (PR #20) and `test_folders.py` (PR #21).
