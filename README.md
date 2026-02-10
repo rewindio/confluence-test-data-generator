@@ -202,6 +202,7 @@ python confluence_data_generator.py \
 | `--users` | Number of synthetic users to create | 10 |
 | `--concurrency` | Max concurrent requests | 5 |
 | `--request-delay` | Base delay between requests (seconds) | 0.0 |
+| `--settling-delay` | Delay before version creation to let Confluence settle (seconds) | 1.0 |
 | `--content-only` | Only create spaces, pages, blogposts | false |
 | `--dry-run` | Preview without making API calls | false |
 | `--resume` | Resume from checkpoint | false |

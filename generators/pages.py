@@ -29,6 +29,7 @@ class PageGenerator(ConfluenceAPIClient):
         concurrency: int = 5,
         benchmark: Any | None = None,
         request_delay: float = 0.0,
+        settling_delay: float = 1.0,
         checkpoint: "CheckpointManager | None" = None,
     ):
         super().__init__(
@@ -39,6 +40,7 @@ class PageGenerator(ConfluenceAPIClient):
             concurrency,
             benchmark,
             request_delay,
+            settling_delay,
         )
         self.prefix = prefix
         self.checkpoint = checkpoint
@@ -163,7 +165,8 @@ class PageGenerator(ConfluenceAPIClient):
                 created_pages.append(page)
                 space_pages[space_id].append(page)
 
-            time.sleep(0.1)
+            if self.request_delay > 0:
+                time.sleep(self.request_delay)
 
         self.created_pages = created_pages
         return created_pages
@@ -233,7 +236,8 @@ class PageGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Added {created}/{count} page labels")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Page labels complete: {created} added")
         return created
@@ -302,7 +306,8 @@ class PageGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Set {created}/{count} page properties")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Page properties complete: {created} set")
         return created
@@ -502,7 +507,8 @@ class PageGenerator(ConfluenceAPIClient):
 
             if (i + 1) % 50 == 0:
                 self.logger.info(f"Created {created}/{count} page versions")
-                time.sleep(0.2)
+                if self.request_delay > 0:
+                    time.sleep(self.request_delay)
 
         self.logger.info(f"Page versions complete: {created} created")
         return created
@@ -665,7 +671,7 @@ class PageGenerator(ConfluenceAPIClient):
         ]
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -728,7 +734,7 @@ class PageGenerator(ConfluenceAPIClient):
         self.logger.info(f"Setting {count} page properties (async, concurrency: {self.concurrency})...")
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, count, batch_size):
             batch_end = min(batch_start + batch_size, count)
@@ -855,7 +861,7 @@ class PageGenerator(ConfluenceAPIClient):
                 break
 
         created = 0
-        batch_size = self.concurrency * 2
+        batch_size = self.concurrency * 4
 
         for batch_start in range(0, len(restriction_specs), batch_size):
             batch_end = min(batch_start + batch_size, len(restriction_specs))
@@ -984,7 +990,8 @@ class PageGenerator(ConfluenceAPIClient):
             # Brief settling delay to let Confluence finish background
             # processing (search indexing, property HIBERNATEVERSION updates)
             # before we start reading version numbers
-            await asyncio.sleep(1.0)
+            if self.settling_delay > 0:
+                await asyncio.sleep(self.settling_delay)
 
             # Get current version number once
             success, page_data = await self._api_call_async(
