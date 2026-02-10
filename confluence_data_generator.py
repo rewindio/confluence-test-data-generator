@@ -199,6 +199,10 @@ class ConfluenceDataGenerator:
         """Log summary footer with benchmark results."""
         # get_summary_report() includes its own header/dividers
         self.logger.info(self.benchmark.get_summary_report())
+        # Show time estimates for Atlassian-defined instance sizes
+        size_report = self.benchmark.format_size_tier_extrapolations()
+        if size_report:
+            self.logger.info(size_report)
 
     # ========== Checkpoint Helper Methods ==========
 
@@ -603,6 +607,11 @@ class ConfluenceDataGenerator:
         Returns list of attachment dicts with keys: id, title, pageId
         """
         if self._is_phase_complete("attachments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.attachment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} attachments from checkpoint")
+                    return metadata
             return []
 
         num_attachments = counts.get("attachment_v2", counts.get("attachment", 0))
@@ -620,6 +629,10 @@ class ConfluenceDataGenerator:
         self.benchmark.start_phase("attachments", remaining)
 
         attachments = self.attachment_gen.create_attachments(content_ids, remaining)
+
+        if self.checkpoint and attachments:
+            self.checkpoint.add_attachment_metadata(attachments)
+            self.checkpoint.save()
 
         self.benchmark.end_phase("attachments", len(attachments))
         self._complete_phase("attachments")
@@ -1012,6 +1025,11 @@ class ConfluenceDataGenerator:
         Returns list of attachment dicts with keys: id, title, pageId
         """
         if self._is_phase_complete("attachments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.attachment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} attachments from checkpoint")
+                    return metadata
             return []
 
         num_attachments = counts.get("attachment_v2", counts.get("attachment", 0))
@@ -1029,6 +1047,10 @@ class ConfluenceDataGenerator:
         self.benchmark.start_phase("attachments", remaining)
 
         attachments = await self.attachment_gen.create_attachments_async(content_ids, remaining)
+
+        if self.checkpoint and attachments:
+            self.checkpoint.add_attachment_metadata(attachments)
+            self.checkpoint.save()
 
         self.benchmark.end_phase("attachments", len(attachments))
         self._complete_phase("attachments")

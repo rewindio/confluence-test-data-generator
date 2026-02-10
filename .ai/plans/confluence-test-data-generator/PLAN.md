@@ -172,6 +172,8 @@ Copy from Jira's benchmark.py with these changes:
   }
   ```
 - Update extrapolation to use "content" instead of "issues"
+- Added `CONFLUENCE_SIZE_TIERS` constant and `format_size_tier_extrapolations()` method
+- Benchmark output now shows time estimates for all 4 Atlassian instance sizes (S/M/L/XL)
 
 **Step 2: Verify imports work**
 
@@ -480,7 +482,7 @@ The attachment generator was built with both sync and async methods using the le
 
 ## Task 9b: Attachment Checkpoint Resume Support
 
-**Status: TODO**
+**Status: COMPLETED**
 
 **Context:** During PR #14 code review, it was identified that the checkpoint system does not persist attachment metadata (attachment IDs, which pages they belong to). This means `--resume` cannot skip already-uploaded attachments or resume attachment label/version phases.
 

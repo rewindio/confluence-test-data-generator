@@ -2,7 +2,7 @@
 
 import time
 
-from generators.benchmark import BenchmarkTracker, PhaseMetrics
+from generators.benchmark import CONFLUENCE_SIZE_TIERS, BenchmarkTracker, PhaseMetrics
 
 
 class TestPhaseMetricsInitialization:
@@ -576,6 +576,118 @@ class TestBenchmarkTrackerFormatExtrapolation:
 
         # Should mention hours in the total
         assert "TOTAL ESTIMATED TIME" in report
+
+
+class TestConfluenceSizeTiers:
+    """Tests for CONFLUENCE_SIZE_TIERS constant."""
+
+    def test_has_four_tiers(self):
+        """Test all four Atlassian-defined tiers are present."""
+        assert len(CONFLUENCE_SIZE_TIERS) == 4
+
+    def test_tier_names(self):
+        """Test tier names match Atlassian's labels."""
+        names = [t[0] for t in CONFLUENCE_SIZE_TIERS]
+        assert names == ["S", "M", "L", "XL"]
+
+    def test_tier_values_ascending(self):
+        """Test tier content counts are in ascending order."""
+        values = [t[1] for t in CONFLUENCE_SIZE_TIERS]
+        assert values == sorted(values)
+        assert values == [500_000, 2_500_000, 10_000_000, 25_000_000]
+
+
+class TestFormatSizeTierExtrapolations:
+    """Tests for format_size_tier_extrapolations method."""
+
+    def test_returns_empty_when_no_items(self):
+        """Test returns empty string when no items created."""
+        tracker = BenchmarkTracker()
+        assert tracker.format_size_tier_extrapolations() == ""
+
+    def test_includes_all_tiers(self):
+        """Test report includes all four size tiers."""
+        tracker = BenchmarkTracker()
+        tracker.start_phase("pages")
+        tracker.phases["pages"].start_time = 1000.0
+        tracker.phases["pages"].end_time = 1100.0  # 100s for 100 items
+        tracker.phases["pages"].items_created = 100
+
+        report = tracker.format_size_tier_extrapolations()
+
+        assert "S" in report
+        assert "M" in report
+        assert "L" in report
+        assert "XL" in report
+
+    def test_includes_header(self):
+        """Test report includes header and source attribution."""
+        tracker = BenchmarkTracker()
+        tracker.start_phase("pages")
+        tracker.phases["pages"].start_time = 1000.0
+        tracker.phases["pages"].end_time = 1100.0
+        tracker.phases["pages"].items_created = 100
+
+        report = tracker.format_size_tier_extrapolations()
+
+        assert "TIME ESTIMATES BY INSTANCE SIZE" in report
+        assert "Atlassian" in report
+
+    def test_shows_current_item_count(self):
+        """Test report shows current run's item count."""
+        tracker = BenchmarkTracker()
+        tracker.start_phase("pages")
+        tracker.phases["pages"].start_time = 1000.0
+        tracker.phases["pages"].end_time = 1100.0
+        tracker.phases["pages"].items_created = 100
+
+        report = tracker.format_size_tier_extrapolations()
+
+        assert "100" in report
+
+    def test_estimates_scale_linearly(self):
+        """Test that larger tiers produce larger time estimates."""
+        tracker = BenchmarkTracker()
+        tracker.start_phase("pages")
+        tracker.phases["pages"].start_time = 1000.0
+        tracker.phases["pages"].end_time = 1010.0  # 10s for 10 items = 1s/item
+        tracker.phases["pages"].items_created = 10
+
+        data_s = tracker.extrapolate_time(500_000, 10)
+        data_xl = tracker.extrapolate_time(25_000_000, 10)
+
+        assert data_xl["total_estimated_seconds"] > data_s["total_estimated_seconds"]
+
+    def test_content_items_formatted(self):
+        """Test tier content counts are comma-formatted."""
+        tracker = BenchmarkTracker()
+        tracker.start_phase("pages")
+        tracker.phases["pages"].start_time = 1000.0
+        tracker.phases["pages"].end_time = 1100.0
+        tracker.phases["pages"].items_created = 100
+
+        report = tracker.format_size_tier_extrapolations()
+
+        assert "500,000" in report
+        assert "2,500,000" in report
+        assert "10,000,000" in report
+        assert "25,000,000" in report
+
+
+class TestFormatTimeEstimate:
+    """Tests for _format_time_estimate static method."""
+
+    def test_seconds(self):
+        assert BenchmarkTracker._format_time_estimate(45) == "45s"
+
+    def test_minutes(self):
+        assert BenchmarkTracker._format_time_estimate(300) == "5.0m"
+
+    def test_hours(self):
+        assert BenchmarkTracker._format_time_estimate(7200) == "2.0h"
+
+    def test_days(self):
+        assert BenchmarkTracker._format_time_estimate(172800) == "2.0d"
 
 
 class TestBenchmarkTrackerGetSummaryReport:

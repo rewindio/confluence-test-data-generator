@@ -9,6 +9,16 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 
+# Confluence Data Center content profiles from Atlassian's sizing guide.
+# "Content (all versions)" upper bounds for each tier.
+# Source: https://confluence.atlassian.com/enterprise/confluence-data-center-load-profiles-946603546.html
+CONFLUENCE_SIZE_TIERS = [
+    ("S", 500_000),
+    ("M", 2_500_000),
+    ("L", 10_000_000),
+    ("XL", 25_000_000),
+]
+
 
 @dataclass
 class PhaseMetrics:
@@ -319,6 +329,59 @@ class BenchmarkTracker:
                 "  - Network latency",
                 "  - Confluence instance performance",
                 "  - Concurrency settings",
+            ]
+        )
+
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_time_estimate(seconds: float) -> str:
+        """Format seconds as a human-readable time estimate."""
+        if seconds < 60:
+            return f"{seconds:.0f}s"
+        elif seconds < 3600:
+            return f"{seconds / 60:.1f}m"
+        elif seconds < 86400:
+            return f"{seconds / 3600:.1f}h"
+        else:
+            return f"{seconds / 86400:.1f}d"
+
+    def format_size_tier_extrapolations(self) -> str:
+        """Format time extrapolations for all Confluence instance size tiers.
+
+        Uses observed rates from the current run to estimate how long it
+        would take to generate data for each Atlassian-defined size tier.
+
+        Returns:
+            Formatted string report, or empty string if no data to extrapolate.
+        """
+        current = self.total_items_created
+        if current <= 0:
+            return ""
+
+        lines = [
+            "",
+            "=" * 60,
+            "TIME ESTIMATES BY INSTANCE SIZE",
+            "=" * 60,
+            f"Based on current run: {current:,} items",
+            "",
+            f"  {'Size':<6} {'Content Items':>15} {'Est. Time':>12}",
+            f"  {'----':<6} {'-------------':>15} {'---------':>12}",
+        ]
+
+        for tier_name, tier_upper_bound in CONFLUENCE_SIZE_TIERS:
+            data = self.extrapolate_time(tier_upper_bound, current)
+            if "error" in data:
+                continue
+            time_str = self._format_time_estimate(data["total_estimated_seconds"])
+            lines.append(f"  {tier_name:<6} {tier_upper_bound:>15,} {time_str:>12}")
+
+        lines.extend(
+            [
+                "",
+                "Sizes from Atlassian's Confluence Data Center load profiles.",
+                "Estimates assume linear scaling from observed rates.",
             ]
         )
 
