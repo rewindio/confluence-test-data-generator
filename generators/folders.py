@@ -309,7 +309,8 @@ class FolderGenerator(ConfluenceAPIClient):
                     created_folders.append(result)
                 elif isinstance(result, Exception):
                     self._record_error()
-                    self.logger.error(f"Folder creation failed with exception: {result}")
+                    exc_info = (type(result), result, result.__traceback__)
+                    self.logger.error("Folder creation failed with exception", exc_info=exc_info)
 
             self.logger.info(f"Created {len(created_folders)}/{count} folders")
 
@@ -429,7 +430,7 @@ class FolderGenerator(ConfluenceAPIClient):
                         folder_id,
                         user_id,
                         operation,
-                        exc_info=result,
+                        exc_info=(type(result), result, result.__traceback__),
                     )
 
             self.logger.info(f"Added {created}/{count} folder restrictions")
