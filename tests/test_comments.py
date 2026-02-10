@@ -885,6 +885,55 @@ class TestAsyncCommentVersions:
         await generator._close_async_session()
 
     @pytest.mark.asyncio
+    async def test_create_comment_version_async_409_retry(self):
+        """Test that async version creation retries on 409 conflict."""
+        generator = CommentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            # First attempt: GET succeeds, PUT returns 409
+            m.get(
+                f"{CONFLUENCE_URL}/api/v2/footer-comments/300001?body-format=storage",
+                payload={
+                    "id": "300001",
+                    "version": {"number": 1},
+                    "body": {"storage": {"value": "<p>content</p>"}},
+                },
+                status=200,
+            )
+            m.put(
+                f"{CONFLUENCE_URL}/api/v2/footer-comments/300001",
+                payload={"message": "Version conflict"},
+                status=409,
+            )
+
+            # Second attempt: GET returns updated version, PUT succeeds
+            m.get(
+                f"{CONFLUENCE_URL}/api/v2/footer-comments/300001?body-format=storage",
+                payload={
+                    "id": "300001",
+                    "version": {"number": 2},
+                    "body": {"storage": {"value": "<p>content v2</p>"}},
+                },
+                status=200,
+            )
+            m.put(
+                f"{CONFLUENCE_URL}/api/v2/footer-comments/300001",
+                payload={"id": "300001", "version": {"number": 3}},
+                status=200,
+            )
+
+            with patch("asyncio.sleep", return_value=None):
+                result = await generator.create_comment_version_async("300001", "footer")
+            assert result is True
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
     async def test_create_comment_version_async_dry_run(self):
         """Test creating a comment version asynchronously in dry run mode."""
         generator = CommentGenerator(
@@ -995,6 +1044,81 @@ class TestAsyncCommentVersions:
             comments = [{"id": "400001", "pageId": "100001"}]
             count = await generator.create_comment_versions_async(comments, 1, "inline")
             assert count == 1
+
+        await generator._close_async_session()
+
+    @pytest.mark.asyncio
+    async def test_create_comment_versions_async_logs_exceptions(self):
+        """Test that exceptions from gather are logged and recorded."""
+        generator = CommentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            # Make the GET raise a connection error for one comment
+            m.get(
+                f"{CONFLUENCE_URL}/api/v2/footer-comments/300001?body-format=storage",
+                exception=ConnectionError("connection lost"),
+            )
+
+            # Second comment succeeds
+            m.get(
+                f"{CONFLUENCE_URL}/api/v2/footer-comments/300002?body-format=storage",
+                payload={
+                    "id": "300002",
+                    "version": {"number": 1},
+                    "body": {"storage": {"value": "<p>content</p>"}},
+                },
+                status=200,
+            )
+            m.put(
+                f"{CONFLUENCE_URL}/api/v2/footer-comments/300002",
+                payload={"id": "300002", "version": {"number": 2}},
+                status=200,
+            )
+
+            comments = [
+                {"id": "300001", "pageId": "100001"},
+                {"id": "300002", "pageId": "100002"},
+            ]
+            count = await generator.create_comment_versions_async(comments, 2, "footer")
+            # Only second comment succeeds
+            assert count == 1
+
+        await generator._close_async_session()
+
+
+class TestAsyncPageTextCacheLocking:
+    """Tests for async page text cache locking."""
+
+    @pytest.mark.asyncio
+    async def test_page_text_cache_prevents_duplicate_fetches(self):
+        """Test that the cache lock prevents duplicate page fetches."""
+        generator = CommentGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        with aioresponses() as m:
+            # Only register one GET response - second call should use cache
+            m.get(
+                f"{CONFLUENCE_URL}/api/v2/pages/100001?body-format=storage",
+                payload=PAGE_BODY_RESPONSE,
+                status=200,
+            )
+
+            # First call populates cache
+            result1 = await generator._get_page_text_selection_async("100001")
+            assert result1 == "Lorem"
+
+            # Second call should use cache (no extra GET registered)
+            result2 = await generator._get_page_text_selection_async("100001")
+            assert result2 == "Lorem"
 
         await generator._close_async_session()
 

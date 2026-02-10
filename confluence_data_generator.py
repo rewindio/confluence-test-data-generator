@@ -693,6 +693,11 @@ class ConfluenceDataGenerator:
         Returns list of comment dicts with keys: id, pageId
         """
         if self._is_phase_complete("inline_comments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.inline_comment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} inline comments from checkpoint")
+                    return metadata
             return []
 
         num = counts.get("inline_comment_v2", counts.get("inline_comment", 0))
@@ -710,6 +715,10 @@ class ConfluenceDataGenerator:
         self.benchmark.start_phase("inline_comments", remaining)
 
         comments = self.comment_gen.create_inline_comments(page_ids, remaining)
+
+        if self.checkpoint and comments:
+            self.checkpoint.add_inline_comment_metadata(comments)
+            self.checkpoint.save()
 
         self.benchmark.end_phase("inline_comments", len(comments))
         self._complete_phase("inline_comments")
@@ -742,6 +751,11 @@ class ConfluenceDataGenerator:
         Returns list of comment dicts with keys: id, pageId
         """
         if self._is_phase_complete("footer_comments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.footer_comment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} footer comments from checkpoint")
+                    return metadata
             return []
 
         num = counts.get("footer_comment_v2", counts.get("footer_comment", 0))
@@ -759,6 +773,10 @@ class ConfluenceDataGenerator:
         self.benchmark.start_phase("footer_comments", remaining)
 
         comments = self.comment_gen.create_footer_comments(page_ids, remaining)
+
+        if self.checkpoint and comments:
+            self.checkpoint.add_footer_comment_metadata(comments)
+            self.checkpoint.save()
 
         self.benchmark.end_phase("footer_comments", len(comments))
         self._complete_phase("footer_comments")
@@ -1222,6 +1240,11 @@ class ConfluenceDataGenerator:
         Returns list of comment dicts with keys: id, pageId
         """
         if self._is_phase_complete("inline_comments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.inline_comment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} inline comments from checkpoint")
+                    return metadata
             return []
 
         num = counts.get("inline_comment_v2", counts.get("inline_comment", 0))
@@ -1239,6 +1262,10 @@ class ConfluenceDataGenerator:
         self.benchmark.start_phase("inline_comments", remaining)
 
         comments = await self.comment_gen.create_inline_comments_async(page_ids, remaining)
+
+        if self.checkpoint and comments:
+            self.checkpoint.add_inline_comment_metadata(comments)
+            self.checkpoint.save()
 
         self.benchmark.end_phase("inline_comments", len(comments))
         self._complete_phase("inline_comments")
@@ -1271,6 +1298,11 @@ class ConfluenceDataGenerator:
         Returns list of comment dicts with keys: id, pageId
         """
         if self._is_phase_complete("footer_comments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.footer_comment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} footer comments from checkpoint")
+                    return metadata
             return []
 
         num = counts.get("footer_comment_v2", counts.get("footer_comment", 0))
@@ -1288,6 +1320,10 @@ class ConfluenceDataGenerator:
         self.benchmark.start_phase("footer_comments", remaining)
 
         comments = await self.comment_gen.create_footer_comments_async(page_ids, remaining)
+
+        if self.checkpoint and comments:
+            self.checkpoint.add_footer_comment_metadata(comments)
+            self.checkpoint.save()
 
         self.benchmark.end_phase("footer_comments", len(comments))
         self._complete_phase("footer_comments")

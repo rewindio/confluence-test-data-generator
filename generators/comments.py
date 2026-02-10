@@ -50,6 +50,8 @@ class CommentGenerator(ConfluenceAPIClient):
 
         # Cache page body text to avoid repeated GETs for inline comments
         self._page_text_cache: dict[str, str] = {}
+        # Per-page locks to prevent duplicate fetches in async mode
+        self._page_text_locks: dict[str, asyncio.Lock] = {}
 
     def set_run_id(self, run_id: str) -> None:
         """Set the run ID (should match the main generator's run ID)."""
@@ -90,19 +92,32 @@ class CommentGenerator(ConfluenceAPIClient):
         return selection
 
     async def _get_page_text_selection_async(self, page_id: str) -> str | None:
-        """Get a text selection for a page asynchronously, using cache when available."""
+        """Get a text selection for a page asynchronously, using cache when available.
+
+        Uses per-page locks to prevent duplicate fetches when multiple tasks
+        request the same page concurrently.
+        """
         if page_id in self._page_text_cache:
             return self._page_text_cache[page_id]
 
-        success, data = await self._api_call_async("GET", f"pages/{page_id}", params={"body-format": "storage"})
-        if not success or not data:
-            return None
+        # Get or create a lock for this page to prevent duplicate fetches
+        if page_id not in self._page_text_locks:
+            self._page_text_locks[page_id] = asyncio.Lock()
 
-        body = data.get("body", {}).get("storage", {}).get("value", "")
-        selection = self._extract_text_selection(body)
-        if selection:
-            self._page_text_cache[page_id] = selection
-        return selection
+        async with self._page_text_locks[page_id]:
+            # Re-check cache after acquiring lock (another task may have populated it)
+            if page_id in self._page_text_cache:
+                return self._page_text_cache[page_id]
+
+            success, data = await self._api_call_async("GET", f"pages/{page_id}", params={"body-format": "storage"})
+            if not success or not data:
+                return None
+
+            body = data.get("body", {}).get("storage", {}).get("value", "")
+            selection = self._extract_text_selection(body)
+            if selection:
+                self._page_text_cache[page_id] = selection
+            return selection
 
     # ========== FOOTER COMMENT OPERATIONS ==========
 
@@ -568,32 +583,54 @@ class CommentGenerator(ConfluenceAPIClient):
             self.logger.debug(f"DRY RUN: Would create new version of {comment_type} comment {comment_id}")
             return True
 
-        # Get current comment version
-        success, comment_data = await self._api_call_async(
-            "GET", f"{endpoint_prefix}/{comment_id}", params={"body-format": "storage"}
+        max_conflict_retries = 5
+
+        for retry in range(max_conflict_retries):
+            # Get current comment version
+            success, comment_data = await self._api_call_async(
+                "GET", f"{endpoint_prefix}/{comment_id}", params={"body-format": "storage"}
+            )
+            if not success or not comment_data:
+                self.logger.warning(f"Failed to get {comment_type} comment {comment_id} for versioning")
+                return False
+
+            current_version = comment_data.get("version", {}).get("number", 1)
+
+            new_body = f"<p>{self.generate_random_text(5, 15)}</p>"
+            update_data = {
+                "version": {
+                    "number": current_version + 1,
+                    "message": f"Auto-generated version {current_version + 1}",
+                },
+                "body": {
+                    "representation": "storage",
+                    "value": new_body,
+                },
+            }
+
+            success, _ = await self._api_call_async(
+                "PUT",
+                f"{endpoint_prefix}/{comment_id}",
+                data=update_data,
+                suppress_errors=(409,),
+            )
+            if success:
+                self.logger.debug(f"Created version {current_version + 1} of {comment_type} comment {comment_id}")
+                return True
+
+            # On failure, wait with exponential backoff then retry
+            if retry < max_conflict_retries - 1:
+                delay = min(2**retry, 8)
+                self.logger.debug(
+                    f"Retrying version creation for {comment_type} comment {comment_id} "
+                    f"(attempt {retry + 1}/{max_conflict_retries}, sleep {delay}s)"
+                )
+                await asyncio.sleep(delay)
+
+        self.logger.warning(
+            f"Failed to create version of {comment_type} comment {comment_id} after {max_conflict_retries} retries"
         )
-        if not success or not comment_data:
-            self.logger.warning(f"Failed to get {comment_type} comment {comment_id} for versioning")
-            return False
-
-        current_version = comment_data.get("version", {}).get("number", 1)
-
-        new_body = f"<p>{self.generate_random_text(5, 15)}</p>"
-        update_data = {
-            "version": {
-                "number": current_version + 1,
-                "message": f"Auto-generated version {current_version + 1}",
-            },
-            "body": {
-                "representation": "storage",
-                "value": new_body,
-            },
-        }
-
-        success, _ = await self._api_call_async("PUT", f"{endpoint_prefix}/{comment_id}", data=update_data)
-        if success:
-            self.logger.debug(f"Created version {current_version + 1} of {comment_type} comment {comment_id}")
-        return success
+        return False
 
     async def create_comment_versions_async(
         self,
@@ -714,6 +751,9 @@ class CommentGenerator(ConfluenceAPIClient):
             for result in results:
                 if isinstance(result, int):
                     created += result
+                elif isinstance(result, Exception):
+                    self.logger.error(f"Error creating {comment_type} comment versions: {result}")
+                    self._record_error()
 
             self.logger.info(f"Created {created}/{count} {comment_type} comment versions")
 

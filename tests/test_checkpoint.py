@@ -940,3 +940,74 @@ class TestCheckpointManager:
         # But the actual checkpoint should exist
         checkpoint_path = temp_checkpoint_dir / "confluence_checkpoint_TESTDATA.json"
         assert checkpoint_path.exists()
+
+    def test_add_inline_comment_metadata(self, temp_checkpoint_dir):
+        """Test add_inline_comment_metadata stores metadata and updates phase count."""
+        manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        manager.initialize(
+            run_id="TESTDATA-123",
+            size="small",
+            target_content_count=1000,
+            confluence_url="https://test.atlassian.net/wiki",
+            async_mode=True,
+            concurrency=5,
+            counts={"inline_comment": 100},
+        )
+
+        comments = [
+            {"id": "ic-1", "pageId": "100001"},
+            {"id": "ic-2", "pageId": "100002"},
+        ]
+        manager.add_inline_comment_metadata(comments)
+
+        assert len(manager._checkpoint.inline_comment_metadata) == 2
+        assert manager._checkpoint.phases["inline_comments"].created_count == 2
+
+    def test_add_footer_comment_metadata(self, temp_checkpoint_dir):
+        """Test add_footer_comment_metadata stores metadata and updates phase count."""
+        manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        manager.initialize(
+            run_id="TESTDATA-123",
+            size="small",
+            target_content_count=1000,
+            confluence_url="https://test.atlassian.net/wiki",
+            async_mode=True,
+            concurrency=5,
+            counts={"footer_comment": 100},
+        )
+
+        comments = [
+            {"id": "fc-1", "pageId": "100001"},
+            {"id": "fc-2", "pageId": "100002"},
+        ]
+        manager.add_footer_comment_metadata(comments)
+
+        assert len(manager._checkpoint.footer_comment_metadata) == 2
+        assert manager._checkpoint.phases["footer_comments"].created_count == 2
+
+    def test_comment_metadata_persists_through_save_load(self, temp_checkpoint_dir):
+        """Test that comment metadata survives save/load cycle."""
+        manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        manager.initialize(
+            run_id="TESTDATA-123",
+            size="small",
+            target_content_count=1000,
+            confluence_url="https://test.atlassian.net/wiki",
+            async_mode=True,
+            concurrency=5,
+            counts={"inline_comment": 10, "footer_comment": 10},
+        )
+
+        manager.add_inline_comment_metadata([{"id": "ic-1", "pageId": "100001"}])
+        manager.add_footer_comment_metadata([{"id": "fc-1", "pageId": "100002"}])
+        manager.save()
+
+        # Load into a new manager
+        manager2 = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        loaded = manager2.load()
+
+        assert loaded is not None
+        assert len(loaded.inline_comment_metadata) == 1
+        assert loaded.inline_comment_metadata[0]["id"] == "ic-1"
+        assert len(loaded.footer_comment_metadata) == 1
+        assert loaded.footer_comment_metadata[0]["id"] == "fc-1"
