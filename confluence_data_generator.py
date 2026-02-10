@@ -23,6 +23,7 @@ from generators.attachments import AttachmentGenerator
 from generators.benchmark import BenchmarkTracker
 from generators.blogposts import BlogPostGenerator
 from generators.checkpoint import CheckpointManager
+from generators.comments import CommentGenerator
 from generators.pages import PageGenerator
 from generators.spaces import SpaceGenerator
 
@@ -176,8 +177,10 @@ class ConfluenceDataGenerator:
         # Initialize attachment generator
         self.attachment_gen = AttachmentGenerator(prefix=self.prefix, **common_args)
 
+        # Initialize comment generator
+        self.comment_gen = CommentGenerator(prefix=self.prefix, **common_args)
+
         # Future generators will be added here as they're implemented:
-        # self.comment_gen = CommentGenerator(prefix=self.prefix, **common_args)
         # self.template_gen = TemplateGenerator(prefix=self.prefix, **common_args)
 
     def _log_header(self, counts: dict[str, int]):
@@ -308,7 +311,17 @@ class ConfluenceDataGenerator:
             if attachments:
                 self._create_attachment_items_sync(attachments, counts)
 
-        # Phase 8: Create comments (NOT YET IMPLEMENTED)
+        # Phase 8: Create comments
+        page_id_list = [p["id"] for p in pages] if pages else []
+        if page_id_list and not self.content_only:
+            inline_comments = self._create_inline_comments_sync(page_id_list, counts)
+            if inline_comments:
+                self._create_inline_comment_versions_sync(inline_comments, counts)
+
+            footer_comments = self._create_footer_comments_sync(page_id_list, counts)
+            if footer_comments:
+                self._create_footer_comment_versions_sync(footer_comments, counts)
+
         # Phase 9: Create templates (NOT YET IMPLEMENTED)
 
         self._log_footer()
@@ -672,6 +685,124 @@ class ConfluenceDataGenerator:
                 self._complete_phase("attachment_versions")
                 self.logger.info(f"Created {created} attachment versions")
 
+    # ========== Comment Sync Methods ==========
+
+    def _create_inline_comments_sync(self, page_ids: list[str], counts: dict[str, int]) -> list[dict]:
+        """Create inline comments synchronously.
+
+        Returns list of comment dicts with keys: id, pageId
+        """
+        if self._is_phase_complete("inline_comments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.inline_comment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} inline comments from checkpoint")
+                    return metadata
+            return []
+
+        num = counts.get("inline_comment_v2", counts.get("inline_comment", 0))
+        if num <= 0:
+            return []
+
+        self._start_phase("inline_comments")
+        remaining = self._get_remaining_count("inline_comments", num)
+
+        if remaining <= 0:
+            self._complete_phase("inline_comments")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} inline comments...")
+        self.benchmark.start_phase("inline_comments", remaining)
+
+        comments = self.comment_gen.create_inline_comments(page_ids, remaining)
+
+        if self.checkpoint and comments:
+            self.checkpoint.add_inline_comment_metadata(comments)
+            self.checkpoint.save()
+
+        self.benchmark.end_phase("inline_comments", len(comments))
+        self._complete_phase("inline_comments")
+
+        self.logger.info(f"Created {len(comments)} inline comments")
+        return comments
+
+    def _create_inline_comment_versions_sync(self, comments: list[dict], counts: dict[str, int]):
+        """Create inline comment versions synchronously."""
+        if self._is_phase_complete("inline_comment_versions"):
+            return
+
+        num = counts.get("inline_comment_version_v2", counts.get("inline_comment_version", 0))
+        if num <= 0:
+            return
+
+        self._start_phase("inline_comment_versions")
+        self.logger.info(f"\nCreating {num} inline comment versions...")
+        self.benchmark.start_phase("inline_comment_versions", num)
+
+        created = self.comment_gen.create_comment_versions(comments, num, "inline")
+
+        self.benchmark.end_phase("inline_comment_versions", created)
+        self._complete_phase("inline_comment_versions")
+        self.logger.info(f"Created {created} inline comment versions")
+
+    def _create_footer_comments_sync(self, page_ids: list[str], counts: dict[str, int]) -> list[dict]:
+        """Create footer comments synchronously.
+
+        Returns list of comment dicts with keys: id, pageId
+        """
+        if self._is_phase_complete("footer_comments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.footer_comment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} footer comments from checkpoint")
+                    return metadata
+            return []
+
+        num = counts.get("footer_comment_v2", counts.get("footer_comment", 0))
+        if num <= 0:
+            return []
+
+        self._start_phase("footer_comments")
+        remaining = self._get_remaining_count("footer_comments", num)
+
+        if remaining <= 0:
+            self._complete_phase("footer_comments")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} footer comments...")
+        self.benchmark.start_phase("footer_comments", remaining)
+
+        comments = self.comment_gen.create_footer_comments(page_ids, remaining)
+
+        if self.checkpoint and comments:
+            self.checkpoint.add_footer_comment_metadata(comments)
+            self.checkpoint.save()
+
+        self.benchmark.end_phase("footer_comments", len(comments))
+        self._complete_phase("footer_comments")
+
+        self.logger.info(f"Created {len(comments)} footer comments")
+        return comments
+
+    def _create_footer_comment_versions_sync(self, comments: list[dict], counts: dict[str, int]):
+        """Create footer comment versions synchronously."""
+        if self._is_phase_complete("footer_comment_versions"):
+            return
+
+        num = counts.get("footer_comment_version_v2", counts.get("footer_comment_version", 0))
+        if num <= 0:
+            return
+
+        self._start_phase("footer_comment_versions")
+        self.logger.info(f"\nCreating {num} footer comment versions...")
+        self.benchmark.start_phase("footer_comment_versions", num)
+
+        created = self.comment_gen.create_comment_versions(comments, num, "footer")
+
+        self.benchmark.end_phase("footer_comment_versions", created)
+        self._complete_phase("footer_comment_versions")
+        self.logger.info(f"Created {created} footer comment versions")
+
     # ========== Async Generation Methods ==========
 
     async def generate_async(self, content_count: int, counts: dict[str, int]):
@@ -719,7 +850,17 @@ class ConfluenceDataGenerator:
                 if attachments:
                     await self._create_attachment_items_async(attachments, counts)
 
-            # Phase 8: Create comments (NOT YET IMPLEMENTED)
+            # Phase 8: Create comments
+            page_id_list = [p["id"] for p in pages] if pages else []
+            if page_id_list and not self.content_only:
+                inline_comments = await self._create_inline_comments_async(page_id_list, counts)
+                if inline_comments:
+                    await self._create_inline_comment_versions_async(inline_comments, counts)
+
+                footer_comments = await self._create_footer_comments_async(page_id_list, counts)
+                if footer_comments:
+                    await self._create_footer_comment_versions_async(footer_comments, counts)
+
             # Phase 9: Create templates (NOT YET IMPLEMENTED)
 
             self._log_footer()
@@ -729,6 +870,7 @@ class ConfluenceDataGenerator:
             await self.page_gen._close_async_session()
             await self.blogpost_gen._close_async_session()
             await self.attachment_gen._close_async_session()
+            await self.comment_gen._close_async_session()
 
     async def _create_spaces_async(self, counts: dict[str, int]) -> list[dict]:
         """Create spaces asynchronously.
@@ -1089,6 +1231,124 @@ class ConfluenceDataGenerator:
                 self.benchmark.end_phase("attachment_versions", created)
                 self._complete_phase("attachment_versions")
                 self.logger.info(f"Created {created} attachment versions")
+
+    # ========== Comment Async Methods ==========
+
+    async def _create_inline_comments_async(self, page_ids: list[str], counts: dict[str, int]) -> list[dict]:
+        """Create inline comments asynchronously.
+
+        Returns list of comment dicts with keys: id, pageId
+        """
+        if self._is_phase_complete("inline_comments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.inline_comment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} inline comments from checkpoint")
+                    return metadata
+            return []
+
+        num = counts.get("inline_comment_v2", counts.get("inline_comment", 0))
+        if num <= 0:
+            return []
+
+        self._start_phase("inline_comments")
+        remaining = self._get_remaining_count("inline_comments", num)
+
+        if remaining <= 0:
+            self._complete_phase("inline_comments")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} inline comments (async)...")
+        self.benchmark.start_phase("inline_comments", remaining)
+
+        comments = await self.comment_gen.create_inline_comments_async(page_ids, remaining)
+
+        if self.checkpoint and comments:
+            self.checkpoint.add_inline_comment_metadata(comments)
+            self.checkpoint.save()
+
+        self.benchmark.end_phase("inline_comments", len(comments))
+        self._complete_phase("inline_comments")
+
+        self.logger.info(f"Created {len(comments)} inline comments")
+        return comments
+
+    async def _create_inline_comment_versions_async(self, comments: list[dict], counts: dict[str, int]):
+        """Create inline comment versions asynchronously."""
+        if self._is_phase_complete("inline_comment_versions"):
+            return
+
+        num = counts.get("inline_comment_version_v2", counts.get("inline_comment_version", 0))
+        if num <= 0:
+            return
+
+        self._start_phase("inline_comment_versions")
+        self.logger.info(f"\nCreating {num} inline comment versions (async)...")
+        self.benchmark.start_phase("inline_comment_versions", num)
+
+        created = await self.comment_gen.create_comment_versions_async(comments, num, "inline")
+
+        self.benchmark.end_phase("inline_comment_versions", created)
+        self._complete_phase("inline_comment_versions")
+        self.logger.info(f"Created {created} inline comment versions")
+
+    async def _create_footer_comments_async(self, page_ids: list[str], counts: dict[str, int]) -> list[dict]:
+        """Create footer comments asynchronously.
+
+        Returns list of comment dicts with keys: id, pageId
+        """
+        if self._is_phase_complete("footer_comments"):
+            if self.checkpoint and self.checkpoint.checkpoint:
+                metadata = self.checkpoint.checkpoint.footer_comment_metadata
+                if metadata:
+                    self.logger.info(f"Restored {len(metadata)} footer comments from checkpoint")
+                    return metadata
+            return []
+
+        num = counts.get("footer_comment_v2", counts.get("footer_comment", 0))
+        if num <= 0:
+            return []
+
+        self._start_phase("footer_comments")
+        remaining = self._get_remaining_count("footer_comments", num)
+
+        if remaining <= 0:
+            self._complete_phase("footer_comments")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} footer comments (async)...")
+        self.benchmark.start_phase("footer_comments", remaining)
+
+        comments = await self.comment_gen.create_footer_comments_async(page_ids, remaining)
+
+        if self.checkpoint and comments:
+            self.checkpoint.add_footer_comment_metadata(comments)
+            self.checkpoint.save()
+
+        self.benchmark.end_phase("footer_comments", len(comments))
+        self._complete_phase("footer_comments")
+
+        self.logger.info(f"Created {len(comments)} footer comments")
+        return comments
+
+    async def _create_footer_comment_versions_async(self, comments: list[dict], counts: dict[str, int]):
+        """Create footer comment versions asynchronously."""
+        if self._is_phase_complete("footer_comment_versions"):
+            return
+
+        num = counts.get("footer_comment_version_v2", counts.get("footer_comment_version", 0))
+        if num <= 0:
+            return
+
+        self._start_phase("footer_comment_versions")
+        self.logger.info(f"\nCreating {num} footer comment versions (async)...")
+        self.benchmark.start_phase("footer_comment_versions", num)
+
+        created = await self.comment_gen.create_comment_versions_async(comments, num, "footer")
+
+        self.benchmark.end_phase("footer_comment_versions", created)
+        self._complete_phase("footer_comment_versions")
+        self.logger.info(f"Created {created} footer comment versions")
 
 
 def setup_logging(prefix: str, verbose: bool = False) -> str:

@@ -43,7 +43,7 @@
 │   ├── spaces.py                # SpaceGenerator (DONE)
 │   ├── pages.py                 # PageGenerator (DONE)
 │   ├── attachments.py           # AttachmentGenerator (DONE)
-│   ├── comments.py              # CommentGenerator (TODO)
+│   ├── comments.py              # CommentGenerator (DONE)
 │   └── templates.py             # TemplateGenerator (TODO)
 ├── tests/                        # Unit tests (90%+ coverage required)
 │   ├── conftest.py              # Shared pytest fixtures
@@ -51,6 +51,7 @@
 │   ├── test_benchmark.py        # BenchmarkTracker tests
 │   ├── test_blogposts.py        # BlogPostGenerator tests (49 tests)
 │   ├── test_checkpoint.py       # CheckpointManager tests
+│   ├── test_comments.py         # CommentGenerator tests (44 tests)
 │   ├── test_attachments.py      # AttachmentGenerator tests (36 tests)
 │   ├── test_pages.py            # PageGenerator tests
 │   ├── test_spaces.py           # SpaceGenerator tests (53 tests)

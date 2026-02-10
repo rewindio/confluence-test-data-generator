@@ -14,6 +14,8 @@
 
 ## Task 1: Project Setup
 
+**Status: COMPLETED**
+
 **Files:**
 - Create: `requirements.txt`
 - Create: `.env.example`
@@ -101,6 +103,8 @@ git commit -m "feat: initial project setup with dependencies and structure"
 
 ## Task 2: Base API Client (generators/base.py)
 
+**Status: COMPLETED**
+
 **Files:**
 - Create: `generators/base.py`
 - Reference: `/Users/dnorth/src/tooling/jira-test-data-generator/generators/base.py`
@@ -134,6 +138,8 @@ git commit -m "feat: add base API client with rate limiting"
 ---
 
 ## Task 3: Benchmark Tracker (generators/benchmark.py)
+
+**Status: COMPLETED**
 
 **Files:**
 - Create: `generators/benchmark.py`
@@ -190,6 +196,8 @@ git commit -m "feat: add benchmark tracker for performance metrics"
 ---
 
 ## Task 4: Checkpoint Manager (generators/checkpoint.py)
+
+**Status: COMPLETED**
 
 **Files:**
 - Create: `generators/checkpoint.py`
@@ -330,6 +338,8 @@ This ensures test data covers both the legacy format (for backup/restore testing
 ---
 
 ## Task 7: Page Generator (generators/pages.py)
+
+**Status: COMPLETED**
 
 **Files:**
 - Create: `generators/pages.py`
@@ -512,68 +522,45 @@ The attachment generator was built with both sync and async methods using the le
 
 ## Task 10: Comment Generator (generators/comments.py)
 
+**Status: COMPLETED**
+
 **Files:**
-- Create: `generators/comments.py`
+- Created: `generators/comments.py`
+- Created: `tests/test_comments.py` (44 tests)
+- Modified: `generators/__init__.py` (added CommentGenerator export)
+- Modified: `confluence_data_generator.py` (wired up comment phases)
 
-**Step 1: Create comments.py**
+**Implementation Notes:**
 
-```python
-class CommentGenerator(ConfluenceAPIClient):
-    """Generates Confluence inline and footer comments."""
+The comment generator was built with both sync and async methods for inline comments, footer comments, and their versions. Comments are simpler than pages/blogposts — no labels, properties, or restrictions.
 
-    async def create_footer_comment_async(
-        self,
-        page_id: str,
-        body: str
-    ) -> Optional[dict]:
-        """Create footer comment via POST /wiki/api/v2/pages/{id}/footer-comments"""
+1. **Footer comments**: `POST /api/v2/footer-comments` with `pageId` and body
+2. **Inline comments**: `POST /api/v2/inline-comments` with `pageId`, body, and `inlineCommentProperties`
+3. **Comment versions**: GET current version + PUT with incremented version number
+4. **Version conflict handling**: Uses `suppress_errors=(409,)` with exponential backoff and version re-read (same pattern as blogposts)
+5. **Unified version methods**: `create_comment_version()` / `create_comment_versions_async()` take a `comment_type` parameter ("footer" or "inline") to select the right endpoint
 
-    async def create_inline_comment_async(
-        self,
-        page_id: str,
-        body: str,
-        inline_marker: dict  # text selection location
-    ) -> Optional[dict]:
-        """Create inline comment via POST /wiki/api/v2/pages/{id}/inline-comments"""
+**API Endpoints Used:**
+- `POST /api/v2/footer-comments` — Create footer comment
+- `POST /api/v2/inline-comments` — Create inline comment
+- `GET /api/v2/footer-comments/{id}` — Get footer comment (for version reads)
+- `PUT /api/v2/footer-comments/{id}` — Update footer comment (version increment)
+- `GET /api/v2/inline-comments/{id}` — Get inline comment (for version reads)
+- `PUT /api/v2/inline-comments/{id}` — Update inline comment (version increment)
 
-    async def create_footer_comments_async(
-        self,
-        page_ids: list[str],
-        count: int
-    ) -> list[dict]:
-        """Create footer comments distributed across pages"""
+**Orchestrator wiring:**
+- 4 sync methods: `_create_inline_comments_sync`, `_create_inline_comment_versions_sync`, `_create_footer_comments_sync`, `_create_footer_comment_versions_sync`
+- 4 async methods: mirrors of sync with `await`
+- Phase 8 replaces "NOT YET IMPLEMENTED" stubs in both `generate_sync` and `generate_async`
+- Async session cleanup added to `finally` block
 
-    async def create_inline_comments_async(
-        self,
-        page_ids: list[str],
-        count: int
-    ) -> list[dict]:
-        """Create inline comments distributed across pages"""
-
-    async def create_comment_version_async(
-        self,
-        comment_id: str,
-        comment_type: str,  # "footer" or "inline"
-        new_body: str
-    ) -> bool:
-        """Update comment to create new version"""
-```
-
-**Step 2: Verify imports work**
-
-Run: `python -c "from generators.comments import CommentGenerator; print('OK')"`
-Expected: `OK`
-
-**Step 3: Commit**
-
-```bash
-git add generators/comments.py
-git commit -m "feat: add comment generator for inline and footer comments"
-```
+**Tests:** 44 tests covering initialization, footer creation, inline creation (including inlineCommentProperties verification), versions (both types), dry run, async operations, and edge cases
 
 ---
 
 ## Task 11: Template Generator (generators/templates.py)
+
+**Status: TODO**
 
 **Files:**
 - Create: `generators/templates.py`
@@ -619,6 +606,8 @@ git commit -m "feat: add template generator"
 ---
 
 ## Task 12: Update generators/__init__.py
+
+**Status: PARTIAL** — Current generators exported; needs update after Task 11 (TemplateGenerator).
 
 **Files:**
 - Modify: `generators/__init__.py`
@@ -667,6 +656,8 @@ git commit -m "feat: export all generators from package"
 ---
 
 ## Task 13: Main Orchestrator - Part 1: CLI and Setup (confluence_data_generator.py)
+
+**Status: COMPLETED**
 
 **Files:**
 - Create: `confluence_data_generator.py`
@@ -722,6 +713,8 @@ git commit -m "feat: add main orchestrator CLI and setup"
 ---
 
 ## Task 14: Main Orchestrator - Part 2: ConfluenceDataGenerator Class
+
+**Status: COMPLETED**
 
 **Files:**
 - Modify: `confluence_data_generator.py`
@@ -779,6 +772,8 @@ git commit -m "feat: add ConfluenceDataGenerator class"
 
 ## Task 15: Main Orchestrator - Part 3: Sync Generation Methods
 
+**Status: COMPLETED**
+
 **Files:**
 - Modify: `confluence_data_generator.py`
 
@@ -833,6 +828,8 @@ git commit -m "feat: add synchronous generation methods"
 
 ## Task 16: Main Orchestrator - Part 4: Async Generation Methods
 
+**Status: COMPLETED**
+
 **Files:**
 - Modify: `confluence_data_generator.py`
 
@@ -884,6 +881,8 @@ git commit -m "feat: add asynchronous generation methods"
 ---
 
 ## Task 17: Main Orchestrator - Part 5: Main Entry Point
+
+**Status: COMPLETED**
 
 **Files:**
 - Modify: `confluence_data_generator.py`
@@ -961,6 +960,8 @@ git commit -m "feat: add main entry point and dry-run support"
 
 ## Task 18: Integration Testing - Dry Run
 
+**Status: COMPLETED**
+
 **Files:**
 - All files
 
@@ -1010,6 +1011,8 @@ git commit -m "fix: integration testing fixes"
 
 ## Task 19: Documentation - README.md
 
+**Status: COMPLETED**
+
 **Files:**
 - Modify: `README.md`
 
@@ -1035,6 +1038,8 @@ git commit -m "docs: add comprehensive README"
 ---
 
 ## Task 20: Final Testing and PR
+
+**Status: COMPLETED**
 
 **Files:**
 - All files

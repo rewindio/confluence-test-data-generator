@@ -67,6 +67,10 @@ class CheckpointData:
     # Attachment metadata for resume (each dict has: id, title, pageId)
     attachment_metadata: list[dict[str, str]] = field(default_factory=list)
 
+    # Comment metadata for resume (each dict has: id, pageId)
+    inline_comment_metadata: list[dict[str, str]] = field(default_factory=list)
+    footer_comment_metadata: list[dict[str, str]] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         result = {
             "run_id": self.run_id,
@@ -86,6 +90,8 @@ class CheckpointData:
             "pages_per_space": self.pages_per_space,
             "blogposts_per_space": self.blogposts_per_space,
             "attachment_metadata": self.attachment_metadata,
+            "inline_comment_metadata": self.inline_comment_metadata,
+            "footer_comment_metadata": self.footer_comment_metadata,
             "phases": {k: v.to_dict() for k, v in self.phases.items()},
         }
         return result
@@ -511,6 +517,40 @@ class CheckpointManager:
             self._checkpoint.phases["attachments"].created_count = total
 
             # Save periodically (every 500 attachments)
+            if total % 500 == 0:
+                self.save()
+
+    def add_inline_comment_metadata(self, comments: list[dict[str, str]]) -> None:
+        """Add inline comment metadata to checkpoint for resume support.
+
+        Args:
+            comments: List of comment dicts with keys: id, pageId
+        """
+        if self._checkpoint:
+            if len(self._checkpoint.inline_comment_metadata) < 100000:
+                remaining_capacity = 100000 - len(self._checkpoint.inline_comment_metadata)
+                self._checkpoint.inline_comment_metadata.extend(comments[:remaining_capacity])
+
+            total = len(self._checkpoint.inline_comment_metadata)
+            self._checkpoint.phases["inline_comments"].created_count = total
+
+            if total % 500 == 0:
+                self.save()
+
+    def add_footer_comment_metadata(self, comments: list[dict[str, str]]) -> None:
+        """Add footer comment metadata to checkpoint for resume support.
+
+        Args:
+            comments: List of comment dicts with keys: id, pageId
+        """
+        if self._checkpoint:
+            if len(self._checkpoint.footer_comment_metadata) < 100000:
+                remaining_capacity = 100000 - len(self._checkpoint.footer_comment_metadata)
+                self._checkpoint.footer_comment_metadata.extend(comments[:remaining_capacity])
+
+            total = len(self._checkpoint.footer_comment_metadata)
+            self._checkpoint.phases["footer_comments"].created_count = total
+
             if total % 500 == 0:
                 self.save()
 
