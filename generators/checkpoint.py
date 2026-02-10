@@ -225,7 +225,7 @@ class CheckpointManager:
             "pages": "page",
             "page_labels": "page_label",
             "page_properties": "page_property",
-            "page_restrictions": "page_restriction",
+            "page_restrictions": "page_restriction_v2",
             "page_versions": "page_version",
             "blogposts": "blogpost",
             "blogpost_labels": "blogpost_label",

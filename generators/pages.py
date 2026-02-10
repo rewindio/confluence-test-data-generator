@@ -378,6 +378,12 @@ class PageGenerator(ConfluenceAPIClient):
 
         # Fetch current user to include in restrictions (prevents self-lockout)
         current_user_id = self.get_current_user_account_id()
+        if current_user_id is None:
+            self.logger.error(
+                "Unable to determine current user account ID; skipping page "
+                "restrictions to avoid potential self-lockout."
+            )
+            return 0
 
         operations = ["read", "update"]
 
@@ -823,8 +829,15 @@ class PageGenerator(ConfluenceAPIClient):
 
         self.logger.info(f"Adding {count} page restrictions (async, concurrency: {self.concurrency})...")
 
-        # Fetch current user to include in restrictions (prevents self-lockout)
-        current_user_id = self.get_current_user_account_id()
+        # Fetch current user to include in restrictions (prevents self-lockout).
+        # Run the synchronous call in a thread to avoid blocking the event loop.
+        current_user_id = await asyncio.to_thread(self.get_current_user_account_id)
+        if current_user_id is None:
+            self.logger.error(
+                "Unable to determine current user account ID; skipping async page "
+                "restrictions to avoid potential self-lockout."
+            )
+            return 0
 
         operations = ["read", "update"]
 
@@ -854,12 +867,18 @@ class PageGenerator(ConfluenceAPIClient):
             ]
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
+            for result, (page_id, user_id, operation) in zip(results, batch, strict=True):
                 if result is True:
                     created += 1
                 elif isinstance(result, Exception):
                     self._record_error()
-                    self.logger.error(f"Page restriction task failed: {result}")
+                    self.logger.error(
+                        "Page restriction task failed for page_id=%s user_id=%s operation=%s",
+                        page_id,
+                        user_id,
+                        operation,
+                        exc_info=result,
+                    )
 
             self.logger.info(f"Added {created}/{count} page restrictions")
 
