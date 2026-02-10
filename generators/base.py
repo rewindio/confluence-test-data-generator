@@ -556,7 +556,11 @@ class ConfluenceAPIClient:
         return None
 
     def get_all_users(self, max_users: int = 100) -> list[str]:
-        """Fetch users from the Confluence instance.
+        """Fetch users from the Confluence instance using CQL search.
+
+        Uses the legacy REST API search endpoint since the v2 users endpoint
+        is not available in Confluence Cloud. Filters to 'atlassian' account
+        types to exclude app/bot users.
 
         Returns a list of account IDs.
         """
@@ -566,14 +570,14 @@ class ConfluenceAPIClient:
         self.logger.info("Fetching users from Confluence instance...")
 
         users = []
-        cursor = None
+        start = 0
+        limit = min(50, max_users)
+        base_url = f"{self.confluence_url}/rest/api"
 
         while len(users) < max_users:
-            params = {"limit": 50}
-            if cursor:
-                params["cursor"] = cursor
+            params = {"cql": 'type="user"', "limit": limit, "start": start}
 
-            response = self._api_call("GET", "users", params=params)
+            response = self._api_call("GET", "search/user", params=params, base_url=base_url)
 
             if not response:
                 break
@@ -584,22 +588,17 @@ class ConfluenceAPIClient:
             if not results:
                 break
 
-            for user in results:
+            for result in results:
+                user = result.get("user", {})
                 account_id = user.get("accountId")
-                # Filter out inactive users and app users
+                # Filter to active Atlassian accounts (exclude app/bot users)
                 if account_id and user.get("accountType") == "atlassian":
                     users.append(account_id)
 
-            # Check for next page
-            links = data.get("_links", {})
-            if "next" not in links:
-                break
-
-            # Extract cursor from next link
-            next_link = links.get("next", "")
-            if "cursor=" in next_link:
-                cursor = next_link.split("cursor=")[1].split("&")[0]
-            else:
+            # Check if there are more results
+            total_size = data.get("totalSize", 0)
+            start += len(results)
+            if start >= total_size:
                 break
 
         self.logger.info(f"Found {len(users)} users")

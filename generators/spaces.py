@@ -450,36 +450,62 @@ class SpaceGenerator(ConfluenceAPIClient):
 
     # ========== SPACE PERMISSIONS ==========
 
-    def add_space_permission(
+    def get_space_roles(self) -> list[dict]:
+        """Fetch available space roles from Confluence.
+
+        Returns:
+            List of role dicts with 'id' and 'name' keys, or defaults for dry run.
+        """
+        if self.dry_run:
+            return [
+                {"id": "dry-run-role-1", "name": "Collaborator"},
+                {"id": "dry-run-role-2", "name": "Viewer"},
+                {"id": "dry-run-role-3", "name": "Manager"},
+                {"id": "dry-run-role-4", "name": "Admin"},
+                {"id": "dry-run-role-5", "name": "View only"},
+            ]
+
+        response = self._api_call("GET", "space-roles")
+        if response:
+            return response.json().get("results", [])
+        return []
+
+    def add_space_role_assignment(
         self,
         space_id: str,
-        principal_type: str,
+        role_id: str,
         principal_id: str,
-        operation: str,
     ) -> bool:
-        """Add a permission to a space.
+        """Assign a role to a user in a space.
+
+        Uses the v2 role-assignment API. Confluence Cloud sites in RBAC mode
+        require role assignments instead of direct permission grants.
 
         Args:
-            space_id: The space ID
-            principal_type: 'user' or 'group'
-            principal_id: User account ID or group ID
-            operation: Operation like 'read', 'administer', 'create'
+            space_id: The space ID (not key)
+            role_id: The role UUID from get_space_roles()
+            principal_id: User account ID
 
         Returns:
             True if successful
         """
-        permission_data = {
-            "operation": {"key": operation, "targetType": "space"},
-            "principal": {"type": principal_type, "id": principal_id},
-        }
-
         if self.dry_run:
-            self.logger.debug(f"DRY RUN: Would add '{operation}' permission to space {space_id}")
+            self.logger.debug(f"DRY RUN: Would assign role {role_id} to user in space {space_id}")
             return True
 
-        response = self._api_call("POST", f"spaces/{space_id}/permissions", data=permission_data)
+        assignment_data = [
+            {
+                "roleId": role_id,
+                "principal": {
+                    "principalType": "USER",
+                    "principalId": principal_id,
+                },
+            }
+        ]
+
+        response = self._api_call("POST", f"spaces/{space_id}/role-assignments", data=assignment_data)
         if response:
-            self.logger.debug(f"Added '{operation}' permission to space {space_id}")
+            self.logger.debug(f"Assigned role to user in space {space_id}")
             return True
         return False
 
@@ -489,57 +515,55 @@ class SpaceGenerator(ConfluenceAPIClient):
         user_account_ids: list[str],
         count: int,
     ) -> int:
-        """Add permissions distributed across spaces and users.
+        """Add role assignments distributed across spaces and users.
 
-        Creates a matrix of users x operations for each space.
+        Each role assignment grants multiple underlying permissions. Uses the
+        v2 role-assignment API which works with Confluence Cloud RBAC mode.
 
         Args:
             space_ids: List of space IDs
             user_account_ids: List of user account IDs
-            count: Total number of permissions to add
+            count: Total number of role assignments to add
 
         Returns:
-            Number of permissions added
+            Number of role assignments added
         """
         if not space_ids or not user_account_ids:
             return 0
 
-        self.logger.info(f"Adding {count} space permissions...")
+        roles = self.get_space_roles()
+        if not roles:
+            self.logger.warning("No space roles found — skipping space permissions")
+            return 0
 
-        # Common space operations
-        operations = [
-            "read",
-            "create",
-            "delete",
-            "export",
-            "administer",
-        ]
+        role_ids = [r["id"] for r in roles]
+        self.logger.info(f"Adding {count} space role assignments ({len(roles)} roles available)...")
 
         created = 0
-        permission_index = 0
+        assignment_index = 0
 
-        # Distribute permissions across spaces, users, and operations
         for space_id in space_ids:
             for user_id in user_account_ids:
-                for operation in operations:
-                    if permission_index >= count:
+                for role_id in role_ids:
+                    if assignment_index >= count:
                         break
 
-                    if self.add_space_permission(space_id, "user", user_id, operation):
+                    if self.add_space_role_assignment(space_id, role_id, user_id):
                         created += 1
 
-                    permission_index += 1
+                    assignment_index += 1
 
-                    if permission_index % 100 == 0:
-                        self.logger.info(f"Added {created}/{count} space permissions")
-                        time.sleep(0.2)
+                    if assignment_index % 100 == 0:
+                        self.logger.info(f"Added {created}/{count} space role assignments")
+                        if self.request_delay > 0:
+                            time.sleep(self.request_delay)
 
-                if permission_index >= count:
+                if assignment_index >= count:
                     break
-            if permission_index >= count:
+            if assignment_index >= count:
                 break
 
-        self.logger.info(f"Space permissions complete: {created} added")
+        self.logger.info(f"Space role assignments complete: {created} added")
         return created
 
     # ========== SPACE LOOK AND FEEL ==========
@@ -865,34 +889,40 @@ class SpaceGenerator(ConfluenceAPIClient):
         self.logger.info(f"Space properties complete: {created} set")
         return created
 
-    async def add_space_permission_async(
+    async def add_space_role_assignment_async(
         self,
         space_id: str,
-        principal_type: str,
+        role_id: str,
         principal_id: str,
-        operation: str,
     ) -> bool:
-        """Add a permission to a space asynchronously.
+        """Assign a role to a user in a space asynchronously.
+
+        Uses the v2 role-assignment API. Confluence Cloud sites in RBAC mode
+        require role assignments instead of direct permission grants.
 
         Args:
-            space_id: The space ID
-            principal_type: 'user' or 'group'
-            principal_id: User account ID or group ID
-            operation: Operation like 'read', 'administer', 'create'
+            space_id: The space ID (not key)
+            role_id: The role UUID from get_space_roles()
+            principal_id: User account ID
 
         Returns:
             True if successful
         """
-        permission_data = {
-            "operation": {"key": operation, "targetType": "space"},
-            "principal": {"type": principal_type, "id": principal_id},
-        }
-
         if self.dry_run:
-            self.logger.debug(f"DRY RUN: Would add '{operation}' permission to space {space_id}")
+            self.logger.debug(f"DRY RUN: Would assign role {role_id} to user in space {space_id}")
             return True
 
-        success, _ = await self._api_call_async("POST", f"spaces/{space_id}/permissions", data=permission_data)
+        assignment_data = [
+            {
+                "roleId": role_id,
+                "principal": {
+                    "principalType": "USER",
+                    "principalId": principal_id,
+                },
+            }
+        ]
+
+        success, _ = await self._api_call_async("POST", f"spaces/{space_id}/role-assignments", data=assignment_data)
         return success
 
     async def add_space_permissions_async(
@@ -901,54 +931,62 @@ class SpaceGenerator(ConfluenceAPIClient):
         user_account_ids: list[str],
         count: int,
     ) -> int:
-        """Add permissions to spaces asynchronously with batching.
+        """Add role assignments to spaces asynchronously with batching.
+
+        Each role assignment grants multiple underlying permissions. Uses the
+        v2 role-assignment API which works with Confluence Cloud RBAC mode.
 
         Args:
             space_ids: List of space IDs
             user_account_ids: List of user account IDs
-            count: Total number of permissions to add
+            count: Total number of role assignments to add
 
         Returns:
-            Number of permissions added
+            Number of role assignments added
         """
         if not space_ids or not user_account_ids:
             return 0
 
-        self.logger.info(f"Adding {count} space permissions (async, concurrency: {self.concurrency})...")
+        roles = self.get_space_roles()
+        if not roles:
+            self.logger.warning("No space roles found — skipping space permissions")
+            return 0
 
-        operations = ["read", "create", "delete", "export", "administer"]
+        role_ids = [r["id"] for r in roles]
+        self.logger.info(
+            f"Adding {count} space role assignments (async, concurrency: {self.concurrency}, {len(roles)} roles)..."
+        )
 
-        # Pre-compute all permission combinations up to count
-        permission_specs = []
+        # Pre-compute all assignment combinations up to count
+        assignment_specs = []
         for space_id in space_ids:
             for user_id in user_account_ids:
-                for operation in operations:
-                    if len(permission_specs) >= count:
+                for role_id in role_ids:
+                    if len(assignment_specs) >= count:
                         break
-                    permission_specs.append((space_id, user_id, operation))
-                if len(permission_specs) >= count:
+                    assignment_specs.append((space_id, role_id, user_id))
+                if len(assignment_specs) >= count:
                     break
-            if len(permission_specs) >= count:
+            if len(assignment_specs) >= count:
                 break
 
         created = 0
         batch_size = self.concurrency * 2
 
-        for batch_start in range(0, len(permission_specs), batch_size):
-            batch_end = min(batch_start + batch_size, len(permission_specs))
-            batch = permission_specs[batch_start:batch_end]
-
+        for batch_start in range(0, len(assignment_specs), batch_size):
+            batch = assignment_specs[batch_start : batch_start + batch_size]
             tasks = [
-                self.add_space_permission_async(space_id, "user", user_id, operation)
-                for space_id, user_id, operation in batch
+                self.add_space_role_assignment_async(space_id, role_id, user_id) for space_id, role_id, user_id in batch
             ]
-
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for result in results:
                 if result is True:
                     created += 1
+                elif isinstance(result, Exception):
+                    self._record_error()
+                    self.logger.error(f"Role assignment task failed: {result}")
 
-            self.logger.info(f"Added {created}/{count} space permissions")
+            self.logger.info(f"Added {created}/{count} space role assignments")
 
-        self.logger.info(f"Space permissions complete: {created} added")
+        self.logger.info(f"Space role assignments complete: {created} added")
         return created

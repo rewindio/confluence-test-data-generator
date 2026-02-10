@@ -151,6 +151,9 @@ class ConfluenceDataGenerator:
         # Initialize benchmark tracker
         self.benchmark = BenchmarkTracker()
 
+        # Discovered user account IDs (populated during generation)
+        self.user_account_ids: list[str] = []
+
         # Initialize generators
         self._init_generators()
 
@@ -284,6 +287,14 @@ class ConfluenceDataGenerator:
         if not spaces:
             self.logger.error("No spaces created, cannot continue")
             return
+
+        # Discover users for permissions/restrictions
+        if not self.content_only:
+            self.user_account_ids = self.space_gen.get_all_users(max_users=100)
+            if self.user_account_ids:
+                self.logger.info(f"Discovered {len(self.user_account_ids)} users for permissions/restrictions")
+            else:
+                self.logger.warning("No users discovered - space permissions and restrictions will be skipped")
 
         # Phase 2: Create space-related items (labels, properties, permissions)
         if not self.content_only:
@@ -448,10 +459,28 @@ class ConfluenceDataGenerator:
                 self._complete_phase("space_properties")
                 self.logger.info(f"Created {created} space properties")
 
-        # Space permissions - requires user account IDs
-        # Skip for now as it requires user lookup
-        # if not self._is_phase_complete("space_permissions"):
-        #     ...
+        # Space permissions via role assignments (v2 RBAC API)
+        if not self._is_phase_complete("space_permissions"):
+            if self.user_account_ids:
+                roles = self.space_gen.get_space_roles()
+                num_roles = len(roles) if roles else 5
+                num_perms = len(spaces) * len(self.user_account_ids) * num_roles
+                self._start_phase("space_permissions")
+
+                self.logger.info(
+                    f"\nCreating {num_perms} space permissions "
+                    f"({len(spaces)} spaces × {len(self.user_account_ids)} users × {num_roles} roles)..."
+                )
+                self.benchmark.start_phase("space_permissions", num_perms)
+
+                space_ids = [s["id"] for s in spaces]
+                created = self.space_gen.add_space_permissions(space_ids, self.user_account_ids, num_perms)
+
+                self.benchmark.end_phase("space_permissions", created)
+                if self.checkpoint:
+                    self.checkpoint.update_phase_count("space_permissions", created)
+                self._complete_phase("space_permissions")
+                self.logger.info(f"Created {created} space permissions")
 
     def _create_pages_sync(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
         """Create pages synchronously.
@@ -858,6 +887,14 @@ class ConfluenceDataGenerator:
                 self.logger.error("No spaces created, cannot continue")
                 return
 
+            # Discover users for permissions/restrictions
+            if not self.content_only:
+                self.user_account_ids = self.space_gen.get_all_users(max_users=100)
+                if self.user_account_ids:
+                    self.logger.info(f"Discovered {len(self.user_account_ids)} users for permissions/restrictions")
+                else:
+                    self.logger.warning("No users discovered - space permissions and restrictions will be skipped")
+
             # Phase 2: Create space-related items (labels, properties, permissions)
             if not self.content_only:
                 await self._create_space_items_async(spaces, counts)
@@ -1040,6 +1077,29 @@ class ConfluenceDataGenerator:
                 self.benchmark.end_phase("space_properties", created)
                 self._complete_phase("space_properties")
                 self.logger.info(f"Created {created} space properties")
+
+        # Space permissions via role assignments (v2 RBAC API)
+        if not self._is_phase_complete("space_permissions"):
+            if self.user_account_ids:
+                roles = self.space_gen.get_space_roles()
+                num_roles = len(roles) if roles else 5
+                num_perms = len(spaces) * len(self.user_account_ids) * num_roles
+                self._start_phase("space_permissions")
+
+                self.logger.info(
+                    f"\nCreating {num_perms} space permissions "
+                    f"({len(spaces)} spaces × {len(self.user_account_ids)} users × {num_roles} roles, async)..."
+                )
+                self.benchmark.start_phase("space_permissions", num_perms)
+
+                space_ids = [s["id"] for s in spaces]
+                created = await self.space_gen.add_space_permissions_async(space_ids, self.user_account_ids, num_perms)
+
+                self.benchmark.end_phase("space_permissions", created)
+                if self.checkpoint:
+                    self.checkpoint.update_phase_count("space_permissions", created)
+                self._complete_phase("space_permissions")
+                self.logger.info(f"Created {created} space permissions")
 
     async def _create_pages_async(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
         """Create pages asynchronously.

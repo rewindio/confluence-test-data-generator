@@ -1090,10 +1090,14 @@ class TestGetCurrentUserAccountId:
 
 
 class TestGetAllUsers:
-    """Tests for get_all_users method."""
+    """Tests for get_all_users method.
+
+    Uses CQL search via legacy REST API: GET /rest/api/search/user?cql=type="user"
+    Response format wraps user data in a 'user' key per result.
+    """
 
     def test_returns_users_on_success(self):
-        """Test returns list of account IDs on success."""
+        """Test returns list of account IDs on success, filtering app users."""
         client = ConfluenceAPIClient(
             confluence_url="https://test.atlassian.net/wiki",
             email="test@example.com",
@@ -1103,11 +1107,11 @@ class TestGetAllUsers:
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "results": [
-                {"accountId": "user1", "accountType": "atlassian"},
-                {"accountId": "user2", "accountType": "atlassian"},
-                {"accountId": "app-user", "accountType": "app"},  # Should be filtered
+                {"user": {"accountId": "user1", "accountType": "atlassian"}},
+                {"user": {"accountId": "user2", "accountType": "atlassian"}},
+                {"user": {"accountId": "app-user", "accountType": "app"}},
             ],
-            "_links": {},
+            "totalSize": 3,
         }
 
         with patch.object(client, "_api_call", return_value=mock_response):
@@ -1133,7 +1137,7 @@ class TestGetAllUsers:
         assert all(u.startswith("dry-run-user-") for u in users)
 
     def test_handles_pagination(self):
-        """Test handles paginated results."""
+        """Test handles paginated results via start/totalSize."""
         client = ConfluenceAPIClient(
             confluence_url="https://test.atlassian.net/wiki",
             email="test@example.com",
@@ -1142,14 +1146,14 @@ class TestGetAllUsers:
 
         page1_response = MagicMock()
         page1_response.json.return_value = {
-            "results": [{"accountId": "user1", "accountType": "atlassian"}],
-            "_links": {"next": "/api/v2/users?cursor=abc123"},
+            "results": [{"user": {"accountId": "user1", "accountType": "atlassian"}}],
+            "totalSize": 2,
         }
 
         page2_response = MagicMock()
         page2_response.json.return_value = {
-            "results": [{"accountId": "user2", "accountType": "atlassian"}],
-            "_links": {},
+            "results": [{"user": {"accountId": "user2", "accountType": "atlassian"}}],
+            "totalSize": 2,
         }
 
         with patch.object(
@@ -1173,14 +1177,35 @@ class TestGetAllUsers:
 
         mock_response = MagicMock()
         mock_response.json.return_value = {
-            "results": [{"accountId": f"user{i}", "accountType": "atlassian"} for i in range(10)],
-            "_links": {},
+            "results": [{"user": {"accountId": f"user{i}", "accountType": "atlassian"}} for i in range(10)],
+            "totalSize": 10,
         }
 
         with patch.object(client, "_api_call", return_value=mock_response):
             users = client.get_all_users(max_users=3)
 
         assert len(users) == 3
+
+    def test_uses_legacy_api_endpoint(self):
+        """Test that get_all_users uses the legacy REST API search endpoint."""
+        client = ConfluenceAPIClient(
+            confluence_url="https://test.atlassian.net/wiki",
+            email="test@example.com",
+            api_token="test-token",
+        )
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"results": [], "totalSize": 0}
+
+        with patch.object(client, "_api_call", return_value=mock_response) as mock_call:
+            client.get_all_users()
+
+        mock_call.assert_called_once_with(
+            "GET",
+            "search/user",
+            params={"cql": 'type="user"', "limit": 50, "start": 0},
+            base_url="https://test.atlassian.net/wiki/rest/api",
+        )
 
     def test_returns_empty_list_on_failure(self):
         """Test returns empty list when API call fails."""
@@ -1204,7 +1229,7 @@ class TestGetAllUsers:
         )
 
         mock_response = MagicMock()
-        mock_response.json.return_value = {"results": [], "_links": {}}
+        mock_response.json.return_value = {"results": [], "totalSize": 0}
 
         with patch.object(client, "_api_call", return_value=mock_response):
             users = client.get_all_users()

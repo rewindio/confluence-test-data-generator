@@ -505,15 +505,23 @@ class TestSpaceProperties:
 
 
 class TestSpacePermissions:
-    """Tests for space permission operations."""
+    """Tests for space permission operations.
+
+    Uses v2 role-assignment API: POST /api/v2/spaces/{id}/role-assignments
+    """
 
     @responses.activate
-    def test_add_space_permission_success(self):
-        """Test adding a permission to a space."""
+    def test_get_space_roles(self):
+        """Test fetching available space roles."""
         responses.add(
-            responses.POST,
-            f"{CONFLUENCE_URL}/api/v2/spaces/10001/permissions",
-            json={"id": "perm-1"},
+            responses.GET,
+            f"{CONFLUENCE_URL}/api/v2/space-roles",
+            json={
+                "results": [
+                    {"id": "role-1", "name": "Collaborator"},
+                    {"id": "role-2", "name": "Viewer"},
+                ]
+            },
             status=200,
         )
 
@@ -524,11 +532,12 @@ class TestSpacePermissions:
             prefix=TEST_PREFIX,
         )
 
-        result = generator.add_space_permission("10001", "user", "user-123", "read")
-        assert result is True
+        roles = generator.get_space_roles()
+        assert len(roles) == 2
+        assert roles[0]["name"] == "Collaborator"
 
-    def test_add_space_permission_dry_run(self):
-        """Test adding a permission in dry run mode."""
+    def test_get_space_roles_dry_run(self):
+        """Test fetching roles in dry run mode returns defaults."""
         generator = SpaceGenerator(
             confluence_url=CONFLUENCE_URL,
             email=TEST_EMAIL,
@@ -537,24 +546,77 @@ class TestSpacePermissions:
             dry_run=True,
         )
 
-        result = generator.add_space_permission("10001", "user", "user-123", "read")
+        roles = generator.get_space_roles()
+        assert len(roles) == 5
+        assert roles[0]["name"] == "Collaborator"
+
+    @responses.activate
+    def test_add_space_role_assignment_success(self):
+        """Test assigning a role to a user in a space."""
+        responses.add(
+            responses.POST,
+            f"{CONFLUENCE_URL}/api/v2/spaces/10001/role-assignments",
+            json={
+                "results": [
+                    {
+                        "roleId": "role-1",
+                        "principal": {"principalType": "USER", "principalId": "user-123"},
+                    }
+                ]
+            },
+            status=200,
+        )
+
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+        )
+
+        result = generator.add_space_role_assignment("10001", "role-1", "user-123")
+        assert result is True
+
+    def test_add_space_role_assignment_dry_run(self):
+        """Test role assignment in dry run mode."""
+        generator = SpaceGenerator(
+            confluence_url=CONFLUENCE_URL,
+            email=TEST_EMAIL,
+            api_token=TEST_TOKEN,
+            prefix=TEST_PREFIX,
+            dry_run=True,
+        )
+
+        result = generator.add_space_role_assignment("10001", "role-1", "user-123")
         assert result is True
 
     @responses.activate
     def test_add_space_permissions_multiple(self):
-        """Test adding multiple permissions."""
-        # 2 spaces × 2 users × 5 operations = up to 20 permissions
+        """Test adding multiple role assignments across spaces and users."""
+        # Mock get_space_roles
+        responses.add(
+            responses.GET,
+            f"{CONFLUENCE_URL}/api/v2/space-roles",
+            json={
+                "results": [
+                    {"id": "role-1", "name": "Collaborator"},
+                    {"id": "role-2", "name": "Viewer"},
+                ]
+            },
+            status=200,
+        )
+        # Mock role assignment calls for 2 spaces
         for _ in range(10):
             responses.add(
                 responses.POST,
-                f"{CONFLUENCE_URL}/api/v2/spaces/10001/permissions",
-                json={"id": "perm"},
+                f"{CONFLUENCE_URL}/api/v2/spaces/10001/role-assignments",
+                json={"results": [{"roleId": "role-1"}]},
                 status=200,
             )
             responses.add(
                 responses.POST,
-                f"{CONFLUENCE_URL}/api/v2/spaces/10002/permissions",
-                json={"id": "perm"},
+                f"{CONFLUENCE_URL}/api/v2/spaces/10002/role-assignments",
+                json={"results": [{"roleId": "role-1"}]},
                 status=200,
             )
 
@@ -569,10 +631,10 @@ class TestSpacePermissions:
             count = generator.add_space_permissions(
                 space_ids=["10001", "10002"],
                 user_account_ids=["user-1", "user-2"],
-                count=10,
+                count=6,
             )
 
-        assert count == 10
+        assert count == 6
 
     def test_add_space_permissions_empty_lists(self):
         """Test adding permissions with empty lists."""
@@ -853,8 +915,8 @@ class TestAsyncSpaceOperations:
         await generator._close_async_session()
 
     @pytest.mark.asyncio
-    async def test_add_space_permission_async_success(self):
-        """Test adding a permission asynchronously."""
+    async def test_add_space_role_assignment_async_success(self):
+        """Test assigning a role to a user in a space asynchronously."""
         generator = SpaceGenerator(
             confluence_url=CONFLUENCE_URL,
             email=TEST_EMAIL,
@@ -864,19 +926,20 @@ class TestAsyncSpaceOperations:
 
         with aioresponses() as m:
             m.post(
-                f"{CONFLUENCE_URL}/api/v2/spaces/10001/permissions",
-                payload={"id": "perm-1"},
+                f"{CONFLUENCE_URL}/api/v2/spaces/10001/role-assignments",
+                payload={"results": [{"roleId": "role-1"}]},
                 status=200,
             )
 
-            result = await generator.add_space_permission_async("10001", "user", "user-123", "read")
+            result = await generator.add_space_role_assignment_async("10001", "role-1", "user-123")
             assert result is True
 
         await generator._close_async_session()
 
+    @responses.activate
     @pytest.mark.asyncio
     async def test_add_space_permissions_async_multiple(self):
-        """Test adding multiple permissions asynchronously."""
+        """Test adding multiple role assignments asynchronously."""
         generator = SpaceGenerator(
             confluence_url=CONFLUENCE_URL,
             email=TEST_EMAIL,
@@ -884,25 +947,38 @@ class TestAsyncSpaceOperations:
             prefix=TEST_PREFIX,
         )
 
+        # Mock get_space_roles (sync call within async method)
+        responses.add(
+            responses.GET,
+            f"{CONFLUENCE_URL}/api/v2/space-roles",
+            json={
+                "results": [
+                    {"id": "role-1", "name": "Collaborator"},
+                    {"id": "role-2", "name": "Viewer"},
+                ]
+            },
+            status=200,
+        )
+
         with aioresponses() as m:
             for _ in range(10):
                 m.post(
-                    f"{CONFLUENCE_URL}/api/v2/spaces/10001/permissions",
-                    payload={"id": "perm"},
+                    f"{CONFLUENCE_URL}/api/v2/spaces/10001/role-assignments",
+                    payload={"results": [{"roleId": "role-1"}]},
                     status=200,
                 )
                 m.post(
-                    f"{CONFLUENCE_URL}/api/v2/spaces/10002/permissions",
-                    payload={"id": "perm"},
+                    f"{CONFLUENCE_URL}/api/v2/spaces/10002/role-assignments",
+                    payload={"results": [{"roleId": "role-1"}]},
                     status=200,
                 )
 
             count = await generator.add_space_permissions_async(
                 space_ids=["10001", "10002"],
                 user_account_ids=["user-1", "user-2"],
-                count=10,
+                count=6,
             )
-            assert count == 10
+            assert count == 6
 
         await generator._close_async_session()
 
@@ -1016,8 +1092,8 @@ class TestAsyncDryRun:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_add_space_permission_async_dry_run(self):
-        """Test adding a permission asynchronously in dry run mode."""
+    async def test_add_space_role_assignment_async_dry_run(self):
+        """Test role assignment asynchronously in dry run mode."""
         generator = SpaceGenerator(
             confluence_url=CONFLUENCE_URL,
             email=TEST_EMAIL,
@@ -1026,7 +1102,7 @@ class TestAsyncDryRun:
             dry_run=True,
         )
 
-        result = await generator.add_space_permission_async("10001", "user", "user-123", "read")
+        result = await generator.add_space_role_assignment_async("10001", "role-1", "user-123")
         assert result is True
 
     @pytest.mark.asyncio
