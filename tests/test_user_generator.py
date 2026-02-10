@@ -87,11 +87,11 @@ class TestURLHandling:
     def test_extracts_site_name_with_hyphens(self):
         """Site name with hyphens is extracted correctly."""
         gen = ConfluenceUserGenerator(
-            confluence_url="https://rewind-jira-scale-testing.atlassian.net",
+            confluence_url="https://my-test-instance.atlassian.net",
             email=TEST_EMAIL,
             api_token=TEST_TOKEN,
         )
-        assert gen.site_name == "rewind-jira-scale-testing"
+        assert gen.site_name == "my-test-instance"
 
     def test_default_confluence_users_group(self):
         """Confluence users group is auto-detected from site name."""

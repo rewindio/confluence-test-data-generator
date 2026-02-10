@@ -171,8 +171,8 @@ connector = aiohttp.TCPConnector(
 
 `confluence_user_generator.py` creates synthetic users:
 
-- Takes base email (e.g., `dave.north@rewind.io`)
-- Generates `dave.north+sandbox1@rewind.io`, `dave.north+sandbox2@rewind.io`, etc.
+- Takes base email (e.g., `admin@yourcompany.com`)
+- Generates `admin+sandbox1@yourcompany.com`, `admin+sandbox2@yourcompany.com`, etc.
 - `--users N` flag controls count (default: 10)
 - Users created in phase 1, before space permissions
 
@@ -219,7 +219,7 @@ requests>=2.31.0
 ```bash
 python confluence_data_generator.py \
   --url https://mycompany.atlassian.net/wiki \
-  --email dave.north@rewind.io \
+  --email admin@yourcompany.com \
   --count 10000 \
   --size small \
   --users 20
@@ -230,7 +230,7 @@ python confluence_data_generator.py \
 ```bash
 python confluence_data_generator.py \
   --url https://mycompany.atlassian.net/wiki \
-  --email dave.north@rewind.io \
+  --email admin@yourcompany.com \
   --count 1000000 \
   --size medium \
   --content-only \
@@ -242,7 +242,7 @@ python confluence_data_generator.py \
 ```bash
 python confluence_data_generator.py \
   --url https://mycompany.atlassian.net/wiki \
-  --email dave.north@rewind.io \
+  --email admin@yourcompany.com \
   --count 1000000 \
   --resume
 ```
@@ -252,7 +252,7 @@ python confluence_data_generator.py \
 ```bash
 python confluence_data_generator.py \
   --url https://mycompany.atlassian.net/wiki \
-  --email dave.north@rewind.io \
+  --email admin@yourcompany.com \
   --count 100000 \
   --dry-run
 ```
