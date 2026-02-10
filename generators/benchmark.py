@@ -107,6 +107,7 @@ class BenchmarkTracker:
             "space_properties": "Space Properties",
             "space_permissions": "Space Permissions",
             "folders": "Folders",
+            "folder_restrictions": "Folder Restrictions",
             "pages": "Pages",
             "page_labels": "Page Labels",
             "page_properties": "Page Properties",

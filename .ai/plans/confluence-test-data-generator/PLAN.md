@@ -1125,18 +1125,9 @@ Wired existing blogpost restriction generator code into both sync and async orch
 
 ## Task D: Wire Folders and Folder Restrictions into Orchestrator
 
-**Status: NOT STARTED**
+**Status: COMPLETED**
 
-Wire folders and folder restrictions into the orchestrator. These are in the multiplier CSV (`folder`: 0.002/0.001/0.0004, `folder_restriction`: 0.004/0.003/0.001) and in `CheckpointManager.PHASE_ORDER` but not yet created by the orchestrator.
-
-**Scope:**
-- Investigate Confluence API for folder creation and folder restrictions
-- Create folder generator methods (or add to an existing generator)
-- Wire into orchestrator (sync + async)
-- Wire folder_restrictions into orchestrator (sync + async)
-- Add tests
-
-**Note:** Folders may use a different API pattern than pages/blogposts. Need to verify the API endpoint exists and works before implementing.
+Created `generators/folders.py` with `FolderGenerator` class (sync + async methods for folder creation and folder restrictions). Wired into orchestrator as Phase 7c (between attachment items and comments). Folder creation uses `POST /api/v2/folders` (v2 endpoint), folder restrictions use `PUT /rest/api/content/{id}/restriction` (same v1 endpoint as pages/blogposts). Added `folder_restrictions` display name to benchmark. Multiplier CSV keys: `folder`, `folder_restriction`.
 
 ---
 

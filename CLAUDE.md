@@ -40,6 +40,7 @@
 │   ├── benchmark.py             # BenchmarkTracker, PhaseMetrics (~400 lines)
 │   ├── blogposts.py             # BlogPostGenerator (DONE)
 │   ├── checkpoint.py            # CheckpointManager (~620 lines)
+│   ├── folders.py               # FolderGenerator (DONE)
 │   ├── spaces.py                # SpaceGenerator (DONE)
 │   ├── pages.py                 # PageGenerator (DONE)
 │   ├── attachments.py           # AttachmentGenerator (DONE)
@@ -52,6 +53,7 @@
 │   ├── test_blogposts.py        # BlogPostGenerator tests (49 tests)
 │   ├── test_checkpoint.py       # CheckpointManager tests
 │   ├── test_comments.py         # CommentGenerator tests (44 tests)
+│   ├── test_folders.py          # FolderGenerator tests
 │   ├── test_templates.py        # TemplateGenerator tests (23 tests)
 │   ├── test_attachments.py      # AttachmentGenerator tests (36 tests)
 │   ├── test_pages.py            # PageGenerator tests
@@ -417,6 +419,8 @@ Generation follows this order (defined in `CheckpointManager.PHASE_ORDER`):
 | `spaces/{id}` | GET | Get space details |
 | `space-roles` | GET | List available space roles (RBAC) |
 | `spaces/{id}/role-assignments` | GET/POST | List/add role assignments (array body for POST) |
+| `folders` | POST | Create folder |
+| `folders/{id}` | DELETE | Delete folder |
 | `pages` | POST | Create page |
 | `pages/{id}` | GET/PUT | Get/update page |
 | `blogposts` | POST | Create blogpost |
@@ -729,5 +733,5 @@ Always check documentation before marking complete:
 
 ---
 
-**Last Updated**: 2026-02-09
+**Last Updated**: 2026-02-10
 **AI Agent Note**: This file is specifically for you. The user-facing docs are in README.md.

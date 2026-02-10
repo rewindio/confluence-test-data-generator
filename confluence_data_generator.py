@@ -24,6 +24,7 @@ from generators.benchmark import BenchmarkTracker
 from generators.blogposts import BlogPostGenerator
 from generators.checkpoint import CheckpointManager
 from generators.comments import CommentGenerator
+from generators.folders import FolderGenerator
 from generators.pages import PageGenerator
 from generators.spaces import SpaceGenerator
 from generators.templates import TemplateGenerator
@@ -184,6 +185,9 @@ class ConfluenceDataGenerator:
         # Initialize comment generator
         self.comment_gen = CommentGenerator(prefix=self.prefix, **common_args)
 
+        # Initialize folder generator
+        self.folder_gen = FolderGenerator(prefix=self.prefix, **common_args)
+
         # Initialize template generator
         self.template_gen = TemplateGenerator(prefix=self.prefix, **common_args)
 
@@ -323,6 +327,12 @@ class ConfluenceDataGenerator:
             if attachments:
                 self._create_attachment_items_sync(attachments, counts)
 
+        # Phase 7c: Create folders
+        if not self.content_only:
+            folders = self._create_folders_sync(spaces, counts)
+            if folders:
+                self._create_folder_restrictions_sync(folders, counts)
+
         # Phase 8: Create comments
         page_id_list = [p["id"] for p in pages] if pages else []
         if page_id_list and not self.content_only:
@@ -339,6 +349,62 @@ class ConfluenceDataGenerator:
             self._create_templates_sync(spaces, counts)
 
         self._log_footer()
+
+    def _create_folders_sync(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
+        """Create folders synchronously.
+
+        Returns list of created folder dicts with keys: id, title, spaceId
+        """
+        if self._is_phase_complete("folders"):
+            return []
+
+        num_folders = counts.get("folder", 0)
+        if num_folders <= 0:
+            return []
+
+        self._start_phase("folders")
+        remaining = self._get_remaining_count("folders", num_folders)
+
+        if remaining <= 0:
+            self._complete_phase("folders")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} folders...")
+        self.benchmark.start_phase("folders", remaining)
+
+        folders = self.folder_gen.create_folders(spaces, remaining)
+
+        self.benchmark.end_phase("folders", len(folders))
+        if self.checkpoint:
+            self.checkpoint.update_phase_count("folders", len(folders))
+        self._complete_phase("folders")
+
+        self.logger.info(f"Created {len(folders)} folders")
+        return folders
+
+    def _create_folder_restrictions_sync(self, folders: list[dict], counts: dict[str, int]):
+        """Create folder restrictions synchronously."""
+        if self._is_phase_complete("folder_restrictions"):
+            return
+
+        num_restrictions = counts.get("folder_restriction", 0)
+        if num_restrictions <= 0 or not self.user_account_ids:
+            self._complete_phase("folder_restrictions")
+            return
+
+        folder_ids = [f["id"] for f in folders]
+
+        self._start_phase("folder_restrictions")
+        self.logger.info(f"\nCreating {num_restrictions} folder restrictions...")
+        self.benchmark.start_phase("folder_restrictions", num_restrictions)
+
+        created = self.folder_gen.add_folder_restrictions(folder_ids, self.user_account_ids, num_restrictions)
+
+        self.benchmark.end_phase("folder_restrictions", created)
+        if self.checkpoint:
+            self.checkpoint.update_phase_count("folder_restrictions", created)
+        self._complete_phase("folder_restrictions")
+        self.logger.info(f"Created {created} folder restrictions")
 
     def _create_templates_sync(self, spaces: list[dict], counts: dict[str, int]) -> int:
         """Create templates synchronously.
@@ -955,6 +1021,12 @@ class ConfluenceDataGenerator:
                 if attachments:
                     await self._create_attachment_items_async(attachments, counts)
 
+            # Phase 7c: Create folders
+            if not self.content_only:
+                folders = await self._create_folders_async(spaces, counts)
+                if folders:
+                    await self._create_folder_restrictions_async(folders, counts)
+
             # Phase 8: Create comments
             page_id_list = [p["id"] for p in pages] if pages else []
             if page_id_list and not self.content_only:
@@ -977,8 +1049,67 @@ class ConfluenceDataGenerator:
             await self.page_gen._close_async_session()
             await self.blogpost_gen._close_async_session()
             await self.attachment_gen._close_async_session()
+            await self.folder_gen._close_async_session()
             await self.comment_gen._close_async_session()
             await self.template_gen._close_async_session()
+
+    async def _create_folders_async(self, spaces: list[dict], counts: dict[str, int]) -> list[dict]:
+        """Create folders asynchronously.
+
+        Returns list of created folder dicts with keys: id, title, spaceId
+        """
+        if self._is_phase_complete("folders"):
+            return []
+
+        num_folders = counts.get("folder", 0)
+        if num_folders <= 0:
+            return []
+
+        self._start_phase("folders")
+        remaining = self._get_remaining_count("folders", num_folders)
+
+        if remaining <= 0:
+            self._complete_phase("folders")
+            return []
+
+        self.logger.info(f"\nCreating {remaining} folders (async)...")
+        self.benchmark.start_phase("folders", remaining)
+
+        folders = await self.folder_gen.create_folders_async(spaces, remaining)
+
+        self.benchmark.end_phase("folders", len(folders))
+        if self.checkpoint:
+            self.checkpoint.update_phase_count("folders", len(folders))
+        self._complete_phase("folders")
+
+        self.logger.info(f"Created {len(folders)} folders")
+        return folders
+
+    async def _create_folder_restrictions_async(self, folders: list[dict], counts: dict[str, int]):
+        """Create folder restrictions asynchronously."""
+        if self._is_phase_complete("folder_restrictions"):
+            return
+
+        num_restrictions = counts.get("folder_restriction", 0)
+        if num_restrictions <= 0 or not self.user_account_ids:
+            self._complete_phase("folder_restrictions")
+            return
+
+        folder_ids = [f["id"] for f in folders]
+
+        self._start_phase("folder_restrictions")
+        self.logger.info(f"\nCreating {num_restrictions} folder restrictions (async)...")
+        self.benchmark.start_phase("folder_restrictions", num_restrictions)
+
+        created = await self.folder_gen.add_folder_restrictions_async(
+            folder_ids, self.user_account_ids, num_restrictions
+        )
+
+        self.benchmark.end_phase("folder_restrictions", created)
+        if self.checkpoint:
+            self.checkpoint.update_phase_count("folder_restrictions", created)
+        self._complete_phase("folder_restrictions")
+        self.logger.info(f"Created {created} folder restrictions")
 
     async def _create_templates_async(self, spaces: list[dict], counts: dict[str, int]) -> int:
         """Create templates asynchronously.
