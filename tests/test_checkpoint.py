@@ -775,6 +775,150 @@ class TestCheckpointManager:
         assert "blogposts" in CheckpointManager.CONTENT_ONLY_PHASES
         assert len(CheckpointManager.CONTENT_ONLY_PHASES) == 3
 
+    # ========== Attachment Metadata Tests ==========
+
+    def test_to_dict_includes_attachment_metadata(self, temp_checkpoint_dir):
+        """Test that to_dict includes attachment_metadata field."""
+        data = CheckpointData(
+            run_id="TESTDATA-123",
+            prefix="TESTDATA",
+            size="small",
+            target_content_count=1000,
+            started_at="2024-01-01T00:00:00",
+            last_updated="2024-01-01T00:00:00",
+            confluence_url="https://test.atlassian.net/wiki",
+            async_mode=True,
+            concurrency=5,
+            attachment_metadata=[{"id": "att-1", "title": "f.txt", "pageId": "100"}],
+        )
+        result = data.to_dict()
+        assert "attachment_metadata" in result
+        assert len(result["attachment_metadata"]) == 1
+        assert result["attachment_metadata"][0]["id"] == "att-1"
+
+    def test_from_dict_with_attachment_metadata(self, sample_checkpoint_data):
+        """Test from_dict deserializes attachment_metadata."""
+        data = CheckpointData.from_dict(sample_checkpoint_data.copy())
+        assert len(data.attachment_metadata) == 2
+        assert data.attachment_metadata[0]["id"] == "att-1"
+        assert data.attachment_metadata[1]["title"] == "file2.txt"
+
+    def test_from_dict_without_attachment_metadata(self):
+        """Test from_dict handles old checkpoints missing attachment_metadata."""
+        old_data = {
+            "run_id": "OLD-123",
+            "prefix": "OLD",
+            "size": "small",
+            "target_content_count": 100,
+            "started_at": "2024-01-01T00:00:00",
+            "last_updated": "2024-01-01T00:00:00",
+            "confluence_url": "https://test.atlassian.net/wiki",
+            "async_mode": True,
+            "concurrency": 5,
+            "content_only": False,
+            "space_keys": [],
+            "space_ids": {},
+            "page_ids": [],
+            "blogpost_ids": [],
+            "pages_per_space": {},
+            "blogposts_per_space": {},
+            "phases": {},
+        }
+        data = CheckpointData.from_dict(old_data.copy())
+        assert data.attachment_metadata == []
+
+    def test_add_attachment_metadata(self, temp_checkpoint_dir):
+        """Test add_attachment_metadata stores metadata and updates phase count."""
+        manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        manager.initialize(
+            run_id="TESTDATA-123",
+            size="small",
+            target_content_count=1000,
+            confluence_url="https://test.atlassian.net/wiki",
+            async_mode=True,
+            concurrency=5,
+            counts={"attachment_v2": 100},
+        )
+
+        attachments = [
+            {"id": "att-1", "title": "file1.txt", "pageId": "100001"},
+            {"id": "att-2", "title": "file2.txt", "pageId": "100002"},
+        ]
+        manager.add_attachment_metadata(attachments)
+
+        assert len(manager._checkpoint.attachment_metadata) == 2
+        assert manager._checkpoint.phases["attachments"].created_count == 2
+
+    def test_add_attachment_metadata_caps_at_100k(self, temp_checkpoint_dir):
+        """Test add_attachment_metadata caps stored metadata at 100k."""
+        manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        manager.initialize(
+            run_id="TESTDATA-123",
+            size="small",
+            target_content_count=200000,
+            confluence_url="https://test.atlassian.net/wiki",
+            async_mode=True,
+            concurrency=5,
+            counts={"attachment_v2": 200000},
+        )
+
+        # Add 100k attachments
+        batch = [{"id": f"att-{i}", "title": f"f{i}.txt", "pageId": "100"} for i in range(100000)]
+        manager.add_attachment_metadata(batch)
+        assert len(manager._checkpoint.attachment_metadata) == 100000
+
+        # Try to add more - list should not grow
+        more = [{"id": "att-extra", "title": "extra.txt", "pageId": "100"}]
+        manager.add_attachment_metadata(more)
+        assert len(manager._checkpoint.attachment_metadata) == 100000
+        # Phase count reflects capped list size
+        assert manager._checkpoint.phases["attachments"].created_count == 100000
+
+    def test_get_total_attachments_created(self, temp_checkpoint_dir):
+        """Test get_total_attachments_created returns correct count."""
+        manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        manager.initialize(
+            run_id="TESTDATA-123",
+            size="small",
+            target_content_count=1000,
+            confluence_url="https://test.atlassian.net/wiki",
+            async_mode=True,
+            concurrency=5,
+            counts={"attachment_v2": 100},
+        )
+
+        attachments = [
+            {"id": "att-1", "title": "f1.txt", "pageId": "100"},
+            {"id": "att-2", "title": "f2.txt", "pageId": "200"},
+            {"id": "att-3", "title": "f3.txt", "pageId": "300"},
+        ]
+        manager.add_attachment_metadata(attachments)
+        assert manager.get_total_attachments_created() == 3
+
+    def test_get_total_attachments_created_no_checkpoint(self, temp_checkpoint_dir):
+        """Test get_total_attachments_created returns 0 with no checkpoint."""
+        manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        assert manager.get_total_attachments_created() == 0
+
+    def test_resume_summary_includes_attachments(self, temp_checkpoint_dir):
+        """Test get_resume_summary includes attachment count."""
+        manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)
+        manager.initialize(
+            run_id="TESTDATA-123",
+            size="small",
+            target_content_count=1000,
+            confluence_url="https://test.atlassian.net/wiki",
+            async_mode=True,
+            concurrency=5,
+            counts={"attachment_v2": 100},
+        )
+
+        attachments = [{"id": "att-1", "title": "f1.txt", "pageId": "100"}]
+        manager.add_attachment_metadata(attachments)
+
+        summary = manager.get_resume_summary()
+        assert "Total attachments: 1" in summary
+
     def test_atomic_save(self, temp_checkpoint_dir):
         """Test save uses atomic write (temp file + rename)."""
         manager = CheckpointManager("TESTDATA", checkpoint_dir=temp_checkpoint_dir)

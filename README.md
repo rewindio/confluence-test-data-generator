@@ -17,7 +17,7 @@ A Python tool to generate realistic test data for Confluence Cloud instances bas
 - **Size-Based Generation** - Supports Small/Medium/Large instance profiles
 - **Dry Run Mode** - Preview what will be created without making changes
 - **Checkpointing** - Resume interrupted runs for large-scale data generation
-- **Benchmarking** - Track timing per phase with extrapolation for large datasets
+- **Benchmarking** - Track timing per phase with time estimates for S/M/L/XL instance sizes
 - **Content-Only Mode** - Generate just spaces, pages, and blogposts for scale testing
 - **Performance Optimized** - Connection pooling, text pooling, memory-efficient batching
 
@@ -213,11 +213,12 @@ python confluence_data_generator.py \
 
 Based on [Atlassian's sizing guide](https://confluence.atlassian.com/enterprise/confluence-data-center-load-profiles-946603546.html):
 
-| Bucket | Content Items |
-|--------|---------------|
-| Small | Up to 500,000 |
-| Medium | 500,000 - 2.5 million |
-| Large | 2.5 million - 10 million |
+| Bucket | Content (all versions) |
+|--------|------------------------|
+| S | Up to 500,000 |
+| M | 500,000 - 2.5 million |
+| L | 2.5 million - 10 million |
+| XL | 10 million - 25 million |
 
 ## Item Type Multipliers
 

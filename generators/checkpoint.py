@@ -64,6 +64,9 @@ class CheckpointData:
     pages_per_space: dict[str, int] = field(default_factory=dict)
     blogposts_per_space: dict[str, int] = field(default_factory=dict)
 
+    # Attachment metadata for resume (each dict has: id, title, pageId)
+    attachment_metadata: list[dict[str, str]] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         result = {
             "run_id": self.run_id,
@@ -82,6 +85,7 @@ class CheckpointData:
             "blogpost_ids": self.blogpost_ids,
             "pages_per_space": self.pages_per_space,
             "blogposts_per_space": self.blogposts_per_space,
+            "attachment_metadata": self.attachment_metadata,
             "phases": {k: v.to_dict() for k, v in self.phases.items()},
         }
         return result
@@ -490,6 +494,32 @@ class CheckpointManager:
             return sum(self._checkpoint.blogposts_per_space.values())
         return 0
 
+    def add_attachment_metadata(self, attachments: list[dict[str, str]]) -> None:
+        """Add attachment metadata to checkpoint for resume support.
+
+        Args:
+            attachments: List of attachment dicts with keys: id, title, pageId
+        """
+        if self._checkpoint:
+            # Cap stored metadata at 100k to avoid huge checkpoint files
+            if len(self._checkpoint.attachment_metadata) < 100000:
+                remaining_capacity = 100000 - len(self._checkpoint.attachment_metadata)
+                self._checkpoint.attachment_metadata.extend(attachments[:remaining_capacity])
+
+            # Always update phase count
+            total = len(self._checkpoint.attachment_metadata)
+            self._checkpoint.phases["attachments"].created_count = total
+
+            # Save periodically (every 500 attachments)
+            if total % 500 == 0:
+                self.save()
+
+    def get_total_attachments_created(self) -> int:
+        """Get total number of attachments tracked in checkpoint."""
+        if self._checkpoint:
+            return len(self._checkpoint.attachment_metadata)
+        return 0
+
     # ========== Resume Helpers ==========
 
     def get_pages_needed_per_space(self, spaces: list[dict], total_pages: int) -> dict[str, int]:
@@ -585,6 +615,7 @@ class CheckpointManager:
         lines.append(f"Spaces: {len(self._checkpoint.space_keys)}")
         lines.append(f"Total pages: {self.get_total_pages_created()}")
         lines.append(f"Total blogposts: {self.get_total_blogposts_created()}")
+        lines.append(f"Total attachments: {self.get_total_attachments_created()}")
         lines.append(f"Target content: {self._checkpoint.target_content_count}")
 
         return "\n".join(lines)

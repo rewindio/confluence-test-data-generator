@@ -172,6 +172,10 @@ def sample_checkpoint_data():
         "blogpost_ids": [str(i) for i in range(200001, 200006)],
         "pages_per_space": {"TEST1": 50, "TEST2": 0},
         "blogposts_per_space": {"TEST1": 5, "TEST2": 0},
+        "attachment_metadata": [
+            {"id": "att-1", "title": "file1.txt", "pageId": "100001"},
+            {"id": "att-2", "title": "file2.txt", "pageId": "100002"},
+        ],
         "phases": {
             "spaces": {"status": "complete", "target_count": 2, "created_count": 2, "created_items": []},
             "pages": {"status": "in_progress", "target_count": 152, "created_count": 50, "created_items": []},

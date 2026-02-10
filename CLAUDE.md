@@ -425,11 +425,12 @@ When possible, run a quick manual test against a real Confluence instance after 
 
 Based on [Atlassian's sizing guide](https://confluence.atlassian.com/enterprise/confluence-data-center-load-profiles-946603546.html):
 
-| Bucket | Content Items |
-|--------|---------------|
-| Small | Up to 500,000 |
-| Medium | 500,000 - 2.5 million |
-| Large | 2.5 million - 10 million |
+| Bucket | Content (all versions) |
+|--------|------------------------|
+| S | Up to 500,000 |
+| M | 500,000 - 2.5 million |
+| L | 2.5 million - 10 million |
+| XL | 10 million - 25 million |
 
 ---
 
