@@ -50,9 +50,9 @@ Based on the size bucket you choose, the tool creates:
 
 **Users & Permissions:**
 - Synthetic users (using Gmail "+" trick for verification emails)
-- Space permissions (formula: spaces × users × 14)
+- Space permissions via RBAC role assignments (formula: spaces × users × roles)
 
-Multipliers are loaded from `item_type_multipliers.csv` for easy customization.
+Most item counts are derived from multipliers in `item_type_multipliers.csv`. **Space permissions are the exception** — they are not in the CSV. Instead, the count is computed dynamically as `num_spaces × num_discovered_users × num_available_roles`. Users are auto-discovered from the Confluence instance, and roles are fetched from the v2 Space Roles API.
 
 ## Installation
 

@@ -298,6 +298,23 @@ When fixing Atlassian/Confluence API issues, always verify **both** the endpoint
 
 Always test against a real instance after API fixes—mock tests don't catch naming convention issues.
 
+#### Space Permissions Use RBAC Role Assignments (Not Direct Permissions)
+Confluence Cloud uses RBAC (role-based access control). The legacy v1 permission endpoint (`POST /rest/api/space/{key}/permission`) returns "not supported in roles-only mode", and the v2 POST permissions endpoint returns 405. Instead, use the v2 role-assignment API:
+
+- `GET /api/v2/space-roles` — list available roles (Collaborator, Viewer, Manager, Admin, View only)
+- `GET /api/v2/spaces/{id}/role-assignments` — list current assignments
+- `POST /api/v2/spaces/{id}/role-assignments` — add assignments (**body must be a JSON array**, not a single object)
+
+The "View only" role is not available on standard spaces and returns 400 — filter it out before assigning.
+
+Space permissions are **not in the multiplier CSV**. The count is computed as `num_spaces × num_users × num_roles`.
+
+#### User Discovery Uses v1 CQL Search
+The v2 `/api/v2/users` endpoint returns 400. Use the v1 CQL search instead:
+- `GET /rest/api/search/user?cql=type="user"&limit=50&start=0`
+- Response wraps user data: `{"results": [{"user": {"accountId": ..., "accountType": ...}}], "totalSize": N}`
+- Filter to `accountType == "atlassian"` to exclude app/bot users
+
 ---
 
 ## Architecture & Design Patterns
@@ -347,12 +364,14 @@ Based on `item_type_multipliers.csv`, the tool creates:
 
 | Category | Types |
 |----------|-------|
-| **Spaces** | space, space_property, space_label, space_permission, space_look_and_feel |
+| **Spaces** | space, space_property, space_label, space_permission*, space_look_and_feel |
 | **Pages** | page, page_label, page_property, page_restriction, page_version |
 | **Blogposts** | blogpost, blogpost_label, blogpost_property, blogpost_restriction, blogpost_version |
 | **Attachments** | attachment_v2, attachment_label, attachment_version, folder, folder_restriction |
 | **Comments** | inline_comment, inline_comment_version, footer_comment, footer_comment_version |
 | **Other** | template |
+
+*\*`space_permission` is **not** in the multiplier CSV.* Its count is computed dynamically as `num_spaces × num_discovered_users × num_available_roles`. Users are auto-discovered from the instance via CQL search, and roles are fetched from the v2 Space Roles API. Confluence Cloud uses RBAC (role-based access control), so permissions are created as role assignments rather than direct permission grants.
 
 ### Phase Order
 
@@ -394,6 +413,8 @@ Generation follows this order (defined in `CheckpointManager.PHASE_ORDER`):
 |----------|--------|---------|
 | `spaces` | POST | Create space |
 | `spaces/{id}` | GET | Get space details |
+| `space-roles` | GET | List available space roles (RBAC) |
+| `spaces/{id}/role-assignments` | GET/POST | List/add role assignments (array body for POST) |
 | `pages` | POST | Create page |
 | `pages/{id}` | GET/PUT | Get/update page |
 | `blogposts` | POST | Create blogpost |
@@ -409,6 +430,7 @@ Generation follows this order (defined in `CheckpointManager.PHASE_ORDER`):
 | `space` | GET | List spaces |
 | `space/{key}/label` | POST | Add space label (prefix: `global`) or category (prefix: `team`) |
 | `space/{key}/property` | POST | Add space property |
+| `search/user?cql=type="user"` | GET | Search for users (paginated via `start`/`limit`) |
 | `user/current` | GET | Get current user |
 | `content/{id}/child/attachment` | POST | Upload attachment (multipart form data) |
 | `content/{id}/child/attachment/{att_id}/data` | POST | Upload new attachment version (multipart form data) |
