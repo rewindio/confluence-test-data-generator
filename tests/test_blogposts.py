@@ -791,17 +791,8 @@ class TestAsyncBlogPostOperations:
         await generator._close_async_session()
 
     @pytest.mark.asyncio
-    @responses.activate
     async def test_add_blogpost_restrictions_async_multiple(self):
         """Test adding multiple restrictions asynchronously."""
-        # Mock current user lookup (sync call via asyncio.to_thread)
-        responses.add(
-            responses.GET,
-            f"{CONFLUENCE_URL}/rest/api/user/current",
-            json={"accountId": "current-user-id"},
-            status=200,
-        )
-
         generator = BlogPostGenerator(
             confluence_url=CONFLUENCE_URL,
             email=TEST_EMAIL,
@@ -809,25 +800,35 @@ class TestAsyncBlogPostOperations:
             prefix=TEST_PREFIX,
         )
 
-        with aioresponses() as m:
-            for _ in range(4):
-                m.put(
-                    f"{CONFLUENCE_URL}/rest/api/content/200001/restriction",
-                    payload={"results": []},
-                    status=200,
-                )
-                m.put(
-                    f"{CONFLUENCE_URL}/rest/api/content/200002/restriction",
-                    payload={"results": []},
-                    status=200,
-                )
-
-            count = await generator.add_blogpost_restrictions_async(
-                blogpost_ids=["200001", "200002"],
-                user_account_ids=["user-1", "user-2"],
-                count=4,
+        # Use RequestsMock as context manager so the sync mock stays active
+        # through the entire coroutine (asyncio.to_thread calls requests).
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                f"{CONFLUENCE_URL}/rest/api/user/current",
+                json={"accountId": "current-user-id"},
+                status=200,
             )
-            assert count == 4
+
+            with aioresponses() as m:
+                for _ in range(4):
+                    m.put(
+                        f"{CONFLUENCE_URL}/rest/api/content/200001/restriction",
+                        payload={"results": []},
+                        status=200,
+                    )
+                    m.put(
+                        f"{CONFLUENCE_URL}/rest/api/content/200002/restriction",
+                        payload={"results": []},
+                        status=200,
+                    )
+
+                count = await generator.add_blogpost_restrictions_async(
+                    blogpost_ids=["200001", "200002"],
+                    user_account_ids=["user-1", "user-2"],
+                    count=4,
+                )
+                assert count == 4
 
         await generator._close_async_session()
 
