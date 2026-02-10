@@ -450,8 +450,13 @@ class SpaceGenerator(ConfluenceAPIClient):
 
     # ========== SPACE PERMISSIONS ==========
 
+    # "View only" is a system role that isn't available on standard spaces
+    EXCLUDED_SPACE_ROLES = {"View only"}
+
     def get_space_roles(self) -> list[dict]:
         """Fetch available space roles from Confluence.
+
+        Excludes roles that aren't assignable on standard spaces (e.g. "View only").
 
         Returns:
             List of role dicts with 'id' and 'name' keys, or defaults for dry run.
@@ -462,12 +467,12 @@ class SpaceGenerator(ConfluenceAPIClient):
                 {"id": "dry-run-role-2", "name": "Viewer"},
                 {"id": "dry-run-role-3", "name": "Manager"},
                 {"id": "dry-run-role-4", "name": "Admin"},
-                {"id": "dry-run-role-5", "name": "View only"},
             ]
 
         response = self._api_call("GET", "space-roles")
         if response:
-            return response.json().get("results", [])
+            roles = response.json().get("results", [])
+            return [r for r in roles if r.get("name") not in self.EXCLUDED_SPACE_ROLES]
         return []
 
     def add_space_role_assignment(

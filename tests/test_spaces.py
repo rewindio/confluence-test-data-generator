@@ -512,7 +512,7 @@ class TestSpacePermissions:
 
     @responses.activate
     def test_get_space_roles(self):
-        """Test fetching available space roles."""
+        """Test fetching available space roles, excluding 'View only'."""
         responses.add(
             responses.GET,
             f"{CONFLUENCE_URL}/api/v2/space-roles",
@@ -520,6 +520,7 @@ class TestSpacePermissions:
                 "results": [
                     {"id": "role-1", "name": "Collaborator"},
                     {"id": "role-2", "name": "Viewer"},
+                    {"id": "role-3", "name": "View only"},
                 ]
             },
             status=200,
@@ -535,6 +536,7 @@ class TestSpacePermissions:
         roles = generator.get_space_roles()
         assert len(roles) == 2
         assert roles[0]["name"] == "Collaborator"
+        assert all(r["name"] != "View only" for r in roles)
 
     def test_get_space_roles_dry_run(self):
         """Test fetching roles in dry run mode returns defaults."""
@@ -547,8 +549,9 @@ class TestSpacePermissions:
         )
 
         roles = generator.get_space_roles()
-        assert len(roles) == 5
+        assert len(roles) == 4
         assert roles[0]["name"] == "Collaborator"
+        assert all(r["name"] != "View only" for r in roles)
 
     @responses.activate
     def test_add_space_role_assignment_success(self):
