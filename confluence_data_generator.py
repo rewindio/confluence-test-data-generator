@@ -14,9 +14,11 @@ import logging
 import math
 import os
 import sys
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 
 from generators.attachments import AttachmentGenerator
@@ -1689,6 +1691,104 @@ class ConfluenceDataGenerator:
         self.logger.info(f"Created {created} footer comment versions")
 
 
+def cleanup_spaces(
+    confluence_url: str,
+    email: str,
+    api_token: str,
+    prefix: str,
+    skip_confirm: bool = False,
+    dry_run: bool = False,
+) -> int:
+    """Find and delete all test spaces matching the prefix.
+
+    Args:
+        confluence_url: Confluence Cloud URL
+        email: Atlassian account email
+        api_token: Confluence API token
+        prefix: Prefix used when generating data
+        skip_confirm: If True, skip confirmation prompt
+        dry_run: If True, show what would be deleted without deleting
+
+    Returns:
+        Number of spaces deleted
+    """
+    logger = logging.getLogger(__name__)
+    base_url = confluence_url.rstrip("/")
+    key_prefix = prefix[:6].upper()
+
+    session = requests.Session()
+    session.auth = (email, api_token)
+    session.headers.update({"Accept": "application/json"})
+
+    # Discover spaces via v2 API with pagination
+    matching_spaces = []
+    cursor = None
+
+    while True:
+        url = f"{base_url}/api/v2/spaces?limit=250"
+        if cursor:
+            url += f"&cursor={cursor}"
+
+        resp = session.get(url)
+        if resp.status_code != 200:
+            logger.error(f"Failed to list spaces: {resp.status_code} {resp.text[:200]}")
+            return 0
+
+        data = resp.json()
+        for space in data.get("results", []):
+            if space.get("key", "").startswith(key_prefix):
+                matching_spaces.append(space)
+
+        # Check for next page
+        next_link = data.get("_links", {}).get("next")
+        if not next_link:
+            break
+        # Extract cursor from next link
+        parsed = urllib.parse.urlparse(next_link)
+        params = urllib.parse.parse_qs(parsed.query)
+        cursor = params.get("cursor", [None])[0]
+        if not cursor:
+            break
+
+    if not matching_spaces:
+        logger.info(f"No spaces found matching prefix '{key_prefix}'")
+        return 0
+
+    # Display matching spaces
+    logger.info(f"\nFound {len(matching_spaces)} space(s) matching prefix '{key_prefix}':")
+    for space in matching_spaces:
+        logger.info(f"  {space['key']} - {space.get('name', '(unnamed)')}")
+
+    if dry_run:
+        logger.info(f"\n[DRY RUN] Would delete {len(matching_spaces)} space(s)")
+        return 0
+
+    # Confirm deletion
+    if not skip_confirm:
+        try:
+            answer = input(f"\nDelete {len(matching_spaces)} space(s)? This is permanent. [y/N] ")
+        except EOFError:
+            answer = ""
+        if answer.strip().lower() != "y":
+            logger.info("Cleanup cancelled")
+            return 0
+
+    # Delete spaces via v1 API
+    deleted = 0
+    for space in matching_spaces:
+        key = space["key"]
+        resp = session.delete(f"{base_url}/rest/api/space/{key}")
+        if resp.status_code == 202:
+            logger.info(f"  Deleted space {key}")
+            deleted += 1
+        else:
+            logger.error(f"  Failed to delete space {key}: {resp.status_code} {resp.text[:200]}")
+
+    logger.info(f"\nDeleted {deleted}/{len(matching_spaces)} space(s)")
+    session.close()
+    return deleted
+
+
 def setup_logging(prefix: str, verbose: bool = False) -> str:
     """Setup logging to console and file.
 
@@ -1774,6 +1874,18 @@ Examples:
            --resume \\
            --prefix LOAD
 
+  # Delete all test spaces matching a prefix
+  %(prog)s --url https://mycompany.atlassian.net/wiki \\
+           --email user@example.com \\
+           --cleanup \\
+           --prefix TESTDATA
+
+  # Cleanup without confirmation prompt
+  %(prog)s --url https://mycompany.atlassian.net/wiki \\
+           --email user@example.com \\
+           --cleanup --yes \\
+           --prefix TESTDATA
+
 Checkpointing:
   - Progress is automatically saved to confluence_checkpoint_{PREFIX}.json
   - Use --resume to continue from where you left off
@@ -1791,8 +1903,8 @@ Checkpointing:
     parser.add_argument(
         "--count",
         type=int,
-        required=True,
-        help="Target number of content items (pages + blogposts)",
+        default=None,
+        help="Target number of content items (pages + blogposts). Required unless --cleanup is used.",
     )
     parser.add_argument(
         "--prefix",
@@ -1864,6 +1976,18 @@ Checkpointing:
         help="Disable checkpointing (not recommended for large runs)",
     )
 
+    # Cleanup options
+    parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Delete all test spaces matching the prefix instead of generating data",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt during cleanup",
+    )
+
     args = parser.parse_args()
 
     # Setup logging
@@ -1880,6 +2004,23 @@ Checkpointing:
             "Error: Confluence API token required. Set CONFLUENCE_API_TOKEN in .env file or as environment variable.",
             file=sys.stderr,
         )
+        sys.exit(1)
+
+    # Handle cleanup mode
+    if args.cleanup:
+        cleanup_spaces(
+            confluence_url=args.url,
+            email=args.email,
+            api_token=api_token,
+            prefix=args.prefix,
+            skip_confirm=args.yes,
+            dry_run=args.dry_run,
+        )
+        return
+
+    # Validate --count is provided for generation mode
+    if args.count is None:
+        print("Error: --count is required unless --cleanup is used.", file=sys.stderr)
         sys.exit(1)
 
     # Validate size bucket

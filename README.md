@@ -214,6 +214,8 @@ python confluence_data_generator.py \
 | `--resume` | Resume from checkpoint | false |
 | `--no-checkpoint` | Disable checkpointing | false |
 | `--no-async` | Use synchronous mode | false |
+| `--cleanup` | Delete all test spaces matching the prefix instead of generating data | false |
+| `--yes` | Skip confirmation prompt during cleanup | false |
 | `--verbose` | Enable debug logging | false |
 
 ## Size Buckets
@@ -241,15 +243,32 @@ For example, with `--count 1000 --size small`:
 
 ## Cleanup
 
-All generated content is tagged with the prefix label (default: `TESTDATA`), making it easy to identify. To remove generated data, delete the spaces created during the run:
+Use `--cleanup` to find and delete all test spaces matching your prefix:
 
 ```bash
-# Delete a generated space by key (permanent — does not go to trash)
-curl -s -u "your.email@company.com:$CONFLUENCE_API_TOKEN" \
-  -X DELETE "https://yourcompany.atlassian.net/wiki/rest/api/space/TESTDATA1"
+# Show what would be deleted (dry run)
+python confluence_data_generator.py \
+  --url https://yourcompany.atlassian.net/wiki \
+  --email your.email@company.com \
+  --cleanup --dry-run \
+  --prefix TESTDATA
+
+# Delete with confirmation prompt
+python confluence_data_generator.py \
+  --url https://yourcompany.atlassian.net/wiki \
+  --email your.email@company.com \
+  --cleanup \
+  --prefix TESTDATA
+
+# Delete without confirmation (useful for CI/scripts)
+python confluence_data_generator.py \
+  --url https://yourcompany.atlassian.net/wiki \
+  --email your.email@company.com \
+  --cleanup --yes \
+  --prefix TESTDATA
 ```
 
-The API returns 202 (accepted) and the space — along with all its pages, blogposts, attachments, and comments — is permanently removed.
+Cleanup discovers spaces whose key starts with the first 6 characters of your prefix (e.g., `TESTDA1`, `TESTDA2` for prefix `TESTDATA`), then deletes each via the REST API. Deletion is permanent — spaces do not go to the trash when deleted via API.
 
 ## Development
 
