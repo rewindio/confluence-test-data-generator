@@ -1714,79 +1714,93 @@ def cleanup_spaces(
     """
     logger = logging.getLogger(__name__)
     base_url = confluence_url.rstrip("/")
-    key_prefix = prefix[:6].upper()
 
-    session = requests.Session()
-    session.auth = (email, api_token)
-    session.headers.update({"Accept": "application/json"})
+    normalized_prefix = prefix.strip()
+    if not normalized_prefix:
+        logger.error("Cleanup prefix must be non-empty; refusing to list/delete spaces without a safe prefix.")
+        return 0
+    key_prefix = normalized_prefix[:6].upper()
 
-    # Discover spaces via v2 API with pagination
-    matching_spaces = []
-    cursor = None
+    with requests.Session() as session:
+        session.auth = (email, api_token)
+        session.headers.update({"Accept": "application/json"})
 
-    while True:
-        url = f"{base_url}/api/v2/spaces?limit=250"
-        if cursor:
-            url += f"&cursor={cursor}"
+        # Discover spaces via v2 API with pagination
+        matching_spaces = []
+        cursor = None
 
-        resp = session.get(url)
-        if resp.status_code != 200:
-            logger.error(f"Failed to list spaces: {resp.status_code} {resp.text[:200]}")
+        while True:
+            url = f"{base_url}/api/v2/spaces?limit=250"
+            if cursor:
+                url += f"&cursor={cursor}"
+
+            try:
+                resp = session.get(url, timeout=30)
+            except requests.RequestException as e:
+                logger.error(f"Failed to list spaces: {e}")
+                return 0
+
+            if resp.status_code != 200:
+                logger.error(f"Failed to list spaces: {resp.status_code} {resp.text[:200]}")
+                return 0
+
+            data = resp.json()
+            for space in data.get("results", []):
+                if space.get("key", "").startswith(key_prefix):
+                    matching_spaces.append(space)
+
+            # Check for next page
+            next_link = data.get("_links", {}).get("next")
+            if not next_link:
+                break
+            # Extract cursor from next link
+            parsed = urllib.parse.urlparse(next_link)
+            params = urllib.parse.parse_qs(parsed.query)
+            cursor = params.get("cursor", [None])[0]
+            if not cursor:
+                break
+
+        if not matching_spaces:
+            logger.info(f"No spaces found matching prefix '{key_prefix}'")
             return 0
 
-        data = resp.json()
-        for space in data.get("results", []):
-            if space.get("key", "").startswith(key_prefix):
-                matching_spaces.append(space)
+        # Display matching spaces
+        logger.info(f"\nFound {len(matching_spaces)} space(s) matching prefix '{key_prefix}':")
+        for space in matching_spaces:
+            logger.info(f"  {space['key']} - {space.get('name', '(unnamed)')}")
 
-        # Check for next page
-        next_link = data.get("_links", {}).get("next")
-        if not next_link:
-            break
-        # Extract cursor from next link
-        parsed = urllib.parse.urlparse(next_link)
-        params = urllib.parse.parse_qs(parsed.query)
-        cursor = params.get("cursor", [None])[0]
-        if not cursor:
-            break
-
-    if not matching_spaces:
-        logger.info(f"No spaces found matching prefix '{key_prefix}'")
-        return 0
-
-    # Display matching spaces
-    logger.info(f"\nFound {len(matching_spaces)} space(s) matching prefix '{key_prefix}':")
-    for space in matching_spaces:
-        logger.info(f"  {space['key']} - {space.get('name', '(unnamed)')}")
-
-    if dry_run:
-        logger.info(f"\n[DRY RUN] Would delete {len(matching_spaces)} space(s)")
-        return 0
-
-    # Confirm deletion
-    if not skip_confirm:
-        try:
-            answer = input(f"\nDelete {len(matching_spaces)} space(s)? This is permanent. [y/N] ")
-        except EOFError:
-            answer = ""
-        if answer.strip().lower() != "y":
-            logger.info("Cleanup cancelled")
+        if dry_run:
+            logger.info(f"\n[DRY RUN] Would delete {len(matching_spaces)} space(s)")
             return 0
 
-    # Delete spaces via v1 API
-    deleted = 0
-    for space in matching_spaces:
-        key = space["key"]
-        resp = session.delete(f"{base_url}/rest/api/space/{key}")
-        if resp.status_code == 202:
-            logger.info(f"  Deleted space {key}")
-            deleted += 1
-        else:
-            logger.error(f"  Failed to delete space {key}: {resp.status_code} {resp.text[:200]}")
+        # Confirm deletion
+        if not skip_confirm:
+            try:
+                answer = input(f"\nDelete {len(matching_spaces)} space(s)? This is permanent. [y/N] ")
+            except EOFError:
+                answer = ""
+            if answer.strip().lower() != "y":
+                logger.info("Cleanup cancelled")
+                return 0
 
-    logger.info(f"\nDeleted {deleted}/{len(matching_spaces)} space(s)")
-    session.close()
-    return deleted
+        # Delete spaces via v1 API
+        deleted = 0
+        for space in matching_spaces:
+            key = space["key"]
+            encoded_key = urllib.parse.quote(key, safe="")
+            try:
+                resp = session.delete(f"{base_url}/rest/api/space/{encoded_key}", timeout=30)
+            except requests.RequestException as e:
+                logger.error(f"  Failed to delete space {key}: {e}")
+                continue
+            if resp.status_code == 202:
+                logger.info(f"  Deleted space {key}")
+                deleted += 1
+            else:
+                logger.error(f"  Failed to delete space {key}: {resp.status_code} {resp.text[:200]}")
+
+        logger.info(f"\nDeleted {deleted}/{len(matching_spaces)} space(s)")
+        return deleted
 
 
 def setup_logging(prefix: str, verbose: bool = False) -> str:

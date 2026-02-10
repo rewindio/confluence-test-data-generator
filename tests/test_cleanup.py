@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+import requests as requests_lib
 import responses
 
 from confluence_data_generator import cleanup_spaces
@@ -115,6 +116,24 @@ class TestCleanupDiscovery:
         deleted = cleanup_spaces(CONFLUENCE_URL, TEST_EMAIL, TEST_TOKEN, "ABC", skip_confirm=True)
         assert deleted == 1
 
+    def test_empty_prefix_aborts(self):
+        """Empty prefix is rejected to prevent matching all spaces."""
+        deleted = cleanup_spaces(CONFLUENCE_URL, TEST_EMAIL, TEST_TOKEN, "", skip_confirm=True)
+        assert deleted == 0
+
+    def test_whitespace_only_prefix_aborts(self):
+        """Whitespace-only prefix is rejected."""
+        deleted = cleanup_spaces(CONFLUENCE_URL, TEST_EMAIL, TEST_TOKEN, "   ", skip_confirm=True)
+        assert deleted == 0
+
+    @responses.activate
+    def test_network_error_on_list(self):
+        """Returns 0 when listing spaces hits a network error."""
+        responses.get(V2_SPACES_URL, body=requests_lib.ConnectionError("Connection refused"))
+
+        deleted = cleanup_spaces(CONFLUENCE_URL, TEST_EMAIL, TEST_TOKEN, "TESTDATA", skip_confirm=True)
+        assert deleted == 0
+
 
 # ========== Deletion Tests ==========
 
@@ -139,6 +158,23 @@ class TestCleanupDeletion:
         ]
         responses.get(V2_SPACES_URL, json=_make_spaces_response(spaces))
         responses.delete(f"{CONFLUENCE_URL}/rest/api/space/TESTDA1", status=403, body="Forbidden")
+        responses.delete(f"{CONFLUENCE_URL}/rest/api/space/TESTDA2", status=202)
+
+        deleted = cleanup_spaces(CONFLUENCE_URL, TEST_EMAIL, TEST_TOKEN, "TESTDATA", skip_confirm=True)
+        assert deleted == 1
+
+    @responses.activate
+    def test_network_error_on_delete_continues(self):
+        """Network error on one delete doesn't stop processing others."""
+        spaces = [
+            _make_space("TESTDA1", "Test Space 1", "10001"),
+            _make_space("TESTDA2", "Test Space 2", "10002"),
+        ]
+        responses.get(V2_SPACES_URL, json=_make_spaces_response(spaces))
+        responses.delete(
+            f"{CONFLUENCE_URL}/rest/api/space/TESTDA1",
+            body=requests_lib.ConnectionError("Connection reset"),
+        )
         responses.delete(f"{CONFLUENCE_URL}/rest/api/space/TESTDA2", status=202)
 
         deleted = cleanup_spaces(CONFLUENCE_URL, TEST_EMAIL, TEST_TOKEN, "TESTDATA", skip_confirm=True)

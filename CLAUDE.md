@@ -58,7 +58,7 @@
 │   ├── test_attachments.py      # AttachmentGenerator tests (53 tests)
 │   ├── test_pages.py            # PageGenerator tests (52 tests)
 │   ├── test_spaces.py           # SpaceGenerator tests (55 tests)
-│   ├── test_cleanup.py          # Cleanup command tests (17 tests)
+│   ├── test_cleanup.py          # Cleanup command tests (21 tests)
 │   └── test_user_generator.py   # User generator tests (51 tests)
 ├── .github/workflows/
 │   ├── test.yml                 # Tests with 90% coverage threshold
