@@ -214,6 +214,74 @@ self.logger.error(f"Response: {self._truncate_error_response(error_text)}")
 #### Attachment Uploads Require Separate Session
 The base `_api_call_async()` hardcodes `Content-Type: application/json`. Attachment uploads need multipart form data, so `AttachmentGenerator` creates a dedicated `_async_upload_session` with `X-Atlassian-Token: no-check` header and no Content-Type (let aiohttp set it from FormData).
 
+#### Always Handle Exceptions from `asyncio.gather`
+When using `asyncio.gather(*tasks, return_exceptions=True)`, you **must** check results for `Exception` instances and log them. This has been flagged in PRs #10, #14, #16, and #17 — it's the most common review finding.
+```python
+# BAD - silently drops exceptions
+results = await asyncio.gather(*tasks, return_exceptions=True)
+for result in results:
+    if isinstance(result, dict):
+        created.append(result)
+
+# GOOD - log exceptions and track errors
+results = await asyncio.gather(*tasks, return_exceptions=True)
+for result in results:
+    if isinstance(result, dict):
+        created.append(result)
+    elif isinstance(result, Exception):
+        self._record_error()
+        self.logger.error(f"Task failed with exception: {result}")
+```
+
+#### Update Checkpoint Progress Before Completing a Phase
+In the orchestrator, always call `checkpoint.update_phase_count()` after work completes but **before** `_complete_phase()`. If the process is interrupted between `_start_phase` and `_complete_phase`, the checkpoint's `created_count` will still be 0, causing a resume to re-create everything.
+```python
+# BAD - resume retries all items if interrupted before _complete_phase
+templates = self.template_gen.create_templates(spaces, remaining)
+self.benchmark.end_phase("templates", len(templates))
+self._complete_phase("templates")
+
+# GOOD - checkpoint knows how many were created even if interrupted
+templates = self.template_gen.create_templates(spaces, remaining)
+self.benchmark.end_phase("templates", len(templates))
+if self.checkpoint:
+    self.checkpoint.update_phase_count("templates", len(templates))
+self._complete_phase("templates")
+```
+
+#### Keep Sync and Async Implementations in Parity
+When a generator has both sync and async methods, every behavior must exist in both paths: retry logic, checkpoint updates, error handling, request delays. Review both paths together — a fix applied to only one path will be flagged.
+
+#### Use `request_delay` Not Hard-Coded Sleeps
+Sync loops between API calls must use `self.request_delay` (passed from CLI `--request-delay`), not hard-coded values like `time.sleep(0.1)`. Hard-coded sleeps ignore user configuration and behave differently from async paths.
+```python
+# BAD - ignores CLI configuration
+time.sleep(0.1)
+
+# GOOD - respects user-configured delay
+if self.request_delay > 0:
+    time.sleep(self.request_delay)
+```
+
+#### Tests Must Assert the Behavior They Claim to Test
+Test names and docstrings must match what is actually asserted. A test called `test_type_alternation` that only asserts `is not None` doesn't test alternation. A test called `test_exception_handling` that mocks a 400 response doesn't exercise the exception branch.
+```python
+# BAD - claims to test alternation but doesn't verify it
+def test_create_template_type_alternation(self):
+    t0 = generator.create_template("TEST1", 0)
+    assert t0 is not None  # Only checks existence
+
+# GOOD - actually verifies the alternation behavior
+def test_create_template_type_alternation(self):
+    t0 = generator.create_template("TEST1", 0)
+    t1 = generator.create_template("TEST1", 1)
+    assert t0["templateType"] == "page"
+    assert t1["templateType"] == "blogpost"
+```
+
+#### Keep Doc Counts Accurate
+When CLAUDE.md or PLAN.md reference test counts (e.g., "23 tests"), verify the actual count matches. Run `grep -c "def test_" tests/test_file.py` before writing the number.
+
 ### API Integration Gotchas
 
 **Verify endpoints exist before implementing.** Confluence v2/v3 APIs are incomplete—many operations documented for v1 don't exist in newer APIs. Before writing code for a new API call:
