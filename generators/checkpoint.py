@@ -230,7 +230,7 @@ class CheckpointManager:
             "blogposts": "blogpost",
             "blogpost_labels": "blogpost_label",
             "blogpost_properties": "blogpost_property",
-            "blogpost_restrictions": "blogpost_restriction",
+            "blogpost_restrictions": "blogpost_restriction_v2",
             "blogpost_versions": "blogpost_version",
             "attachments": "attachment_v2",
             "attachment_labels": "attachment_label",

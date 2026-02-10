@@ -84,6 +84,8 @@
 
 ### Task Completion Checklist
 
+Before presenting a summary of completed work, **always run the integration test first** (see "Integration Testing Before User Review" in the Workflow section). This catches API-level issues that unit tests miss. Only present the summary after the integration test passes and cleanup is done.
+
 Before marking any task complete, verify documentation is up to date:
 
 **Internal Documentation** (in `.ai/plans/`):

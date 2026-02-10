@@ -1090,3 +1090,66 @@ At this point, the implementation is complete and ready for real-world testing a
 - Use `--dry-run` for all development testing
 - Test against real instance only when dry-run passes
 - Start with small counts (10-100) before scaling up
+
+---
+
+## Phase 2: Gap Coverage & Performance
+
+These tasks address gaps between the multiplier CSV and what the orchestrator actually creates, plus performance improvements.
+
+---
+
+## Task A: Wire User Discovery and Space Permissions into Orchestrator
+
+**Status: COMPLETED** (PR #18)
+
+Implemented user discovery via v1 CQL search and space permissions via RBAC role assignments. Users are auto-discovered from the instance, and permissions are created as role assignments (not direct permission grants). The count is computed dynamically as `num_spaces × num_users × num_roles` (not from the multiplier CSV).
+
+---
+
+## Task B: Wire Page Restrictions into Orchestrator
+
+**Status: COMPLETED** (PR #19)
+
+Wired existing page restriction generator code into both sync and async orchestrator paths. Fixed hard-coded `time.sleep(0.2)` to use `self.request_delay`, added exception logging to `asyncio.gather` results, and added current-user self-inclusion to prevent restriction lockout (Confluence returns 400 if the API caller is evicted from read access). Count comes from multiplier CSV key `page_restriction_v2`.
+
+---
+
+## Task C: Wire Blogpost Restrictions into Orchestrator
+
+**Status: COMPLETED**
+
+Wired existing blogpost restriction generator code into both sync and async orchestrator paths, mirroring the page restrictions implementation from Task B. Fixed hard-coded `time.sleep(0.2)` to use `self.request_delay`, added current-user self-inclusion to prevent restriction lockout, added exception logging to `asyncio.gather` results with `zip(results, batch)` pattern, and fixed checkpoint mapping from `blogpost_restriction` to `blogpost_restriction_v2`. Count comes from multiplier CSV key `blogpost_restriction_v2`.
+
+---
+
+## Task D: Wire Folders and Folder Restrictions into Orchestrator
+
+**Status: NOT STARTED**
+
+Wire folders and folder restrictions into the orchestrator. These are in the multiplier CSV (`folder`: 0.002/0.001/0.0004, `folder_restriction`: 0.004/0.003/0.001) and in `CheckpointManager.PHASE_ORDER` but not yet created by the orchestrator.
+
+**Scope:**
+- Investigate Confluence API for folder creation and folder restrictions
+- Create folder generator methods (or add to an existing generator)
+- Wire into orchestrator (sync + async)
+- Wire folder_restrictions into orchestrator (sync + async)
+- Add tests
+
+**Note:** Folders may use a different API pattern than pages/blogposts. Need to verify the API endpoint exists and works before implementing.
+
+---
+
+## Task E: Performance Improvements
+
+**Status: NOT STARTED**
+
+Investigate and implement performance improvements to increase throughput for large-scale data generation.
+
+**Scope (to be refined during planning):**
+- Profile current bottlenecks (rate limiting vs. serial operations vs. connection overhead)
+- Consider batch API endpoints where available
+- Optimize async concurrency (connection pooling, batch sizes)
+- Reduce unnecessary API calls (e.g., fetching page body for every inline comment)
+- Consider parallel space processing for independent operations
+- Benchmark before/after to quantify improvements

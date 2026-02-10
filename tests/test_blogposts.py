@@ -426,6 +426,14 @@ class TestBlogPostRestrictions:
     @responses.activate
     def test_add_blogpost_restrictions_multiple(self):
         """Test adding multiple restrictions to blog posts."""
+        # Mock current user lookup (required to prevent self-lockout skip)
+        responses.add(
+            responses.GET,
+            f"{CONFLUENCE_URL}/rest/api/user/current",
+            json={"accountId": "current-user-id"},
+            status=200,
+        )
+
         for _ in range(4):
             responses.add(
                 responses.PUT,
@@ -783,8 +791,17 @@ class TestAsyncBlogPostOperations:
         await generator._close_async_session()
 
     @pytest.mark.asyncio
+    @responses.activate
     async def test_add_blogpost_restrictions_async_multiple(self):
         """Test adding multiple restrictions asynchronously."""
+        # Mock current user lookup (sync call via asyncio.to_thread)
+        responses.add(
+            responses.GET,
+            f"{CONFLUENCE_URL}/rest/api/user/current",
+            json={"accountId": "current-user-id"},
+            status=200,
+        )
+
         generator = BlogPostGenerator(
             confluence_url=CONFLUENCE_URL,
             email=TEST_EMAIL,

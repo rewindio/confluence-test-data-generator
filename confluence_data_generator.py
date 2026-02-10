@@ -677,6 +677,26 @@ class ConfluenceDataGenerator:
                 self._complete_phase("blogpost_properties")
                 self.logger.info(f"Created {created} blogpost properties")
 
+        # Blogpost restrictions - uses v1 REST API with user account IDs
+        if not self._is_phase_complete("blogpost_restrictions"):
+            num_restrictions = counts.get("blogpost_restriction_v2", 0)
+            if num_restrictions > 0 and self.user_account_ids and blogposts:
+                self._start_phase("blogpost_restrictions")
+                self.logger.info(f"\nCreating {num_restrictions} blogpost restrictions...")
+                self.benchmark.start_phase("blogpost_restrictions", num_restrictions)
+
+                created = self.blogpost_gen.add_blogpost_restrictions(
+                    blogpost_ids, self.user_account_ids, num_restrictions
+                )
+
+                self.benchmark.end_phase("blogpost_restrictions", created)
+                if self.checkpoint:
+                    self.checkpoint.update_phase_count("blogpost_restrictions", created)
+                self._complete_phase("blogpost_restrictions")
+                self.logger.info(f"Created {created} blogpost restrictions")
+            else:
+                self._complete_phase("blogpost_restrictions")
+
         # Blogpost versions
         if not self._is_phase_complete("blogpost_versions"):
             num_versions = counts.get("blogpost_version_v2", counts.get("blogpost_version", 0))
@@ -1309,6 +1329,26 @@ class ConfluenceDataGenerator:
                 self.benchmark.end_phase("blogpost_properties", created)
                 self._complete_phase("blogpost_properties")
                 self.logger.info(f"Created {created} blogpost properties")
+
+        # Blogpost restrictions
+        if not self._is_phase_complete("blogpost_restrictions"):
+            num_restrictions = counts.get("blogpost_restriction_v2", 0)
+            if num_restrictions > 0 and self.user_account_ids and blogposts:
+                self._start_phase("blogpost_restrictions")
+                self.logger.info(f"\nCreating {num_restrictions} blogpost restrictions (async)...")
+                self.benchmark.start_phase("blogpost_restrictions", num_restrictions)
+
+                created = await self.blogpost_gen.add_blogpost_restrictions_async(
+                    blogpost_ids, self.user_account_ids, num_restrictions
+                )
+
+                self.benchmark.end_phase("blogpost_restrictions", created)
+                if self.checkpoint:
+                    self.checkpoint.update_phase_count("blogpost_restrictions", created)
+                self._complete_phase("blogpost_restrictions")
+                self.logger.info(f"Created {created} blogpost restrictions")
+            else:
+                self._complete_phase("blogpost_restrictions")
 
         # Blogpost versions
         if not self._is_phase_complete("blogpost_versions"):

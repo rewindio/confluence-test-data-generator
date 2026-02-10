@@ -278,24 +278,32 @@ class BlogPostGenerator(ConfluenceAPIClient):
         blogpost_id: str,
         user_account_id: str,
         operation: str,
+        current_user_id: str | None = None,
     ) -> bool:
         """Add a restriction to a blog post.
 
         Uses the legacy REST API as v2 doesn't support setting restrictions directly.
+        The current user must be included in the restriction user list to avoid
+        self-lockout (Confluence returns 400 otherwise).
 
         Args:
             blogpost_id: The blog post ID
             user_account_id: User account ID
             operation: 'read' or 'update'
+            current_user_id: Current user's account ID (included to prevent self-lockout)
 
         Returns:
             True if successful
         """
+        users = [{"type": "known", "accountId": user_account_id}]
+        if current_user_id and current_user_id != user_account_id:
+            users.append({"type": "known", "accountId": current_user_id})
+
         restriction_data = [
             {
                 "operation": operation,
                 "restrictions": {
-                    "user": [{"type": "known", "accountId": user_account_id}],
+                    "user": users,
                 },
             }
         ]
@@ -332,6 +340,15 @@ class BlogPostGenerator(ConfluenceAPIClient):
 
         self.logger.info(f"Adding {count} blog post restrictions...")
 
+        # Fetch current user to include in restrictions (prevents self-lockout)
+        current_user_id = self.get_current_user_account_id()
+        if current_user_id is None:
+            self.logger.error(
+                "Unable to determine current user account ID; skipping blogpost "
+                "restrictions to avoid potential self-lockout."
+            )
+            return 0
+
         operations = ["read", "update"]
 
         created = 0
@@ -343,14 +360,15 @@ class BlogPostGenerator(ConfluenceAPIClient):
                     if restriction_index >= count:
                         break
 
-                    if self.add_blogpost_restriction(blogpost_id, user_id, operation):
+                    if self.add_blogpost_restriction(blogpost_id, user_id, operation, current_user_id):
                         created += 1
 
                     restriction_index += 1
 
                     if restriction_index % 100 == 0:
                         self.logger.info(f"Added {created}/{count} blog post restrictions")
-                        time.sleep(0.2)
+                        if self.request_delay > 0:
+                            time.sleep(self.request_delay)
 
                 if restriction_index >= count:
                     break
@@ -702,22 +720,31 @@ class BlogPostGenerator(ConfluenceAPIClient):
         blogpost_id: str,
         user_account_id: str,
         operation: str,
+        current_user_id: str | None = None,
     ) -> bool:
         """Add a restriction to a blog post asynchronously.
+
+        The current user must be included in the restriction user list to avoid
+        self-lockout (Confluence returns 400 otherwise).
 
         Args:
             blogpost_id: The blog post ID
             user_account_id: User account ID
             operation: 'read' or 'update'
+            current_user_id: Current user's account ID (included to prevent self-lockout)
 
         Returns:
             True if successful
         """
+        users = [{"type": "known", "accountId": user_account_id}]
+        if current_user_id and current_user_id != user_account_id:
+            users.append({"type": "known", "accountId": current_user_id})
+
         restriction_data = [
             {
                 "operation": operation,
                 "restrictions": {
-                    "user": [{"type": "known", "accountId": user_account_id}],
+                    "user": users,
                 },
             }
         ]
@@ -753,6 +780,16 @@ class BlogPostGenerator(ConfluenceAPIClient):
 
         self.logger.info(f"Adding {count} blog post restrictions (async, concurrency: {self.concurrency})...")
 
+        # Fetch current user to include in restrictions (prevents self-lockout).
+        # Run the synchronous call in a thread to avoid blocking the event loop.
+        current_user_id = await asyncio.to_thread(self.get_current_user_account_id)
+        if current_user_id is None:
+            self.logger.error(
+                "Unable to determine current user account ID; skipping async blogpost "
+                "restrictions to avoid potential self-lockout."
+            )
+            return 0
+
         operations = ["read", "update"]
 
         # Pre-compute all restriction specs up to count
@@ -776,14 +813,23 @@ class BlogPostGenerator(ConfluenceAPIClient):
             batch = restriction_specs[batch_start:batch_end]
 
             tasks = [
-                self.add_blogpost_restriction_async(blogpost_id, user_id, operation)
+                self.add_blogpost_restriction_async(blogpost_id, user_id, operation, current_user_id)
                 for blogpost_id, user_id, operation in batch
             ]
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in results:
+            for result, (blogpost_id, user_id, operation) in zip(results, batch, strict=True):
                 if result is True:
                     created += 1
+                elif isinstance(result, Exception):
+                    self._record_error()
+                    self.logger.error(
+                        "Blogpost restriction task failed for blogpost_id=%s user_id=%s operation=%s",
+                        blogpost_id,
+                        user_id,
+                        operation,
+                        exc_info=result,
+                    )
 
             self.logger.info(f"Added {created}/{count} blog post restrictions")
 
