@@ -8,6 +8,7 @@ from .checkpoint import CheckpointManager
 from .comments import CommentGenerator
 from .pages import PageGenerator
 from .spaces import SpaceGenerator
+from .templates import TemplateGenerator
 
 __all__ = [
     "AttachmentGenerator",
@@ -19,4 +20,5 @@ __all__ = [
     "CheckpointManager",
     "PageGenerator",
     "SpaceGenerator",
+    "TemplateGenerator",
 ]

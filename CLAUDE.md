@@ -16,7 +16,7 @@
 
 **Target User**: Teams who need to test Confluence backup/restore scenarios with realistic data volumes.
 
-**Related Project**: This mirrors the architecture of the [Jira Test Data Generator](/Users/dnorth/src/tooling/jira-test-data-generator/).
+**Related Project**: This mirrors the architecture of the [Jira Test Data Generator](https://github.com/rewindio/jira-test-data-generator).
 
 ---
 
@@ -32,7 +32,7 @@
 │   │       └── DESIGN.md        # Design document
 │   └── guides/
 │       └── AI_IMPLEMENTATION_GUIDE.md
-├── confluence_data_generator.py  # Main orchestrator (spaces, pages, blogposts, attachments wired up)
+├── confluence_data_generator.py  # Main orchestrator (all generators wired up)
 ├── confluence_user_generator.py  # Standalone user/group generator (DONE)
 ├── generators/                   # Modular generators package
 │   ├── __init__.py              # Package exports
@@ -44,7 +44,7 @@
 │   ├── pages.py                 # PageGenerator (DONE)
 │   ├── attachments.py           # AttachmentGenerator (DONE)
 │   ├── comments.py              # CommentGenerator (DONE)
-│   └── templates.py             # TemplateGenerator (TODO)
+│   └── templates.py             # TemplateGenerator (DONE)
 ├── tests/                        # Unit tests (90%+ coverage required)
 │   ├── conftest.py              # Shared pytest fixtures
 │   ├── test_base.py             # ConfluenceAPIClient tests
@@ -52,6 +52,7 @@
 │   ├── test_blogposts.py        # BlogPostGenerator tests (49 tests)
 │   ├── test_checkpoint.py       # CheckpointManager tests
 │   ├── test_comments.py         # CommentGenerator tests (44 tests)
+│   ├── test_templates.py        # TemplateGenerator tests (22 tests)
 │   ├── test_attachments.py      # AttachmentGenerator tests (36 tests)
 │   ├── test_pages.py            # PageGenerator tests
 │   ├── test_spaces.py           # SpaceGenerator tests (53 tests)
@@ -344,6 +345,7 @@ Generation follows this order (defined in `CheckpointManager.PHASE_ORDER`):
 | `content/{id}/child/attachment` | POST | Upload attachment (multipart form data) |
 | `content/{id}/child/attachment/{att_id}/data` | POST | Upload new attachment version (multipart form data) |
 | `content/{id}/label` | POST | Add label to content (pages, blogposts, attachments) |
+| `template` | POST | Create content template (page or blogpost type) |
 
 **Note on Labels vs Categories**: Both use the same endpoint but with different prefixes in the request body:
 - Labels: `[{"prefix": "global", "name": "label-name"}]`

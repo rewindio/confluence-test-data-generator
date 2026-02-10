@@ -26,6 +26,7 @@ from generators.checkpoint import CheckpointManager
 from generators.comments import CommentGenerator
 from generators.pages import PageGenerator
 from generators.spaces import SpaceGenerator
+from generators.templates import TemplateGenerator
 
 
 def load_multipliers_from_csv(csv_path: str | None = None) -> dict[str, dict[str, float]]:
@@ -180,8 +181,8 @@ class ConfluenceDataGenerator:
         # Initialize comment generator
         self.comment_gen = CommentGenerator(prefix=self.prefix, **common_args)
 
-        # Future generators will be added here as they're implemented:
-        # self.template_gen = TemplateGenerator(prefix=self.prefix, **common_args)
+        # Initialize template generator
+        self.template_gen = TemplateGenerator(prefix=self.prefix, **common_args)
 
     def _log_header(self, counts: dict[str, int]):
         """Log generation plan header."""
@@ -322,9 +323,41 @@ class ConfluenceDataGenerator:
             if footer_comments:
                 self._create_footer_comment_versions_sync(footer_comments, counts)
 
-        # Phase 9: Create templates (NOT YET IMPLEMENTED)
+        # Phase 9: Create templates
+        if not self.content_only:
+            self._create_templates_sync(spaces, counts)
 
         self._log_footer()
+
+    def _create_templates_sync(self, spaces: list[dict], counts: dict[str, int]) -> int:
+        """Create templates synchronously.
+
+        Returns number of templates created.
+        """
+        if self._is_phase_complete("templates"):
+            return 0
+
+        num = counts.get("template", 0)
+        if num <= 0:
+            return 0
+
+        self._start_phase("templates")
+        remaining = self._get_remaining_count("templates", num)
+
+        if remaining <= 0:
+            self._complete_phase("templates")
+            return 0
+
+        self.logger.info(f"\nCreating {remaining} templates...")
+        self.benchmark.start_phase("templates", remaining)
+
+        templates = self.template_gen.create_templates(spaces, remaining)
+
+        self.benchmark.end_phase("templates", len(templates))
+        self._complete_phase("templates")
+
+        self.logger.info(f"Created {len(templates)} templates")
+        return len(templates)
 
     def _create_spaces_sync(self, counts: dict[str, int]) -> list[dict]:
         """Create spaces synchronously.
@@ -861,7 +894,9 @@ class ConfluenceDataGenerator:
                 if footer_comments:
                     await self._create_footer_comment_versions_async(footer_comments, counts)
 
-            # Phase 9: Create templates (NOT YET IMPLEMENTED)
+            # Phase 9: Create templates
+            if not self.content_only:
+                await self._create_templates_async(spaces, counts)
 
             self._log_footer()
         finally:
@@ -871,6 +906,37 @@ class ConfluenceDataGenerator:
             await self.blogpost_gen._close_async_session()
             await self.attachment_gen._close_async_session()
             await self.comment_gen._close_async_session()
+            await self.template_gen._close_async_session()
+
+    async def _create_templates_async(self, spaces: list[dict], counts: dict[str, int]) -> int:
+        """Create templates asynchronously.
+
+        Returns number of templates created.
+        """
+        if self._is_phase_complete("templates"):
+            return 0
+
+        num = counts.get("template", 0)
+        if num <= 0:
+            return 0
+
+        self._start_phase("templates")
+        remaining = self._get_remaining_count("templates", num)
+
+        if remaining <= 0:
+            self._complete_phase("templates")
+            return 0
+
+        self.logger.info(f"\nCreating {remaining} templates (async)...")
+        self.benchmark.start_phase("templates", remaining)
+
+        templates = await self.template_gen.create_templates_async(spaces, remaining)
+
+        self.benchmark.end_phase("templates", len(templates))
+        self._complete_phase("templates")
+
+        self.logger.info(f"Created {len(templates)} templates")
+        return len(templates)
 
     async def _create_spaces_async(self, counts: dict[str, int]) -> list[dict]:
         """Create spaces asynchronously.

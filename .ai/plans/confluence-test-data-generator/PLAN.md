@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+, aiohttp, python-dotenv, requests
 
-**Reference:** `/Users/dnorth/src/tooling/jira-test-data-generator/` - follow patterns exactly
+**Reference:** `https://github.com/rewindio/jira-test-data-generator` - follow patterns exactly
 
 ---
 
@@ -107,7 +107,7 @@ git commit -m "feat: initial project setup with dependencies and structure"
 
 **Files:**
 - Create: `generators/base.py`
-- Reference: `/Users/dnorth/src/tooling/jira-test-data-generator/generators/base.py`
+- Reference: `https://github.com/rewindio/jira-test-data-generator/blob/main/generators/base.py`
 
 **Step 1: Create base.py with RateLimitState and ConfluenceAPIClient**
 
@@ -143,7 +143,7 @@ git commit -m "feat: add base API client with rate limiting"
 
 **Files:**
 - Create: `generators/benchmark.py`
-- Reference: `/Users/dnorth/src/tooling/jira-test-data-generator/generators/benchmark.py`
+- Reference: `https://github.com/rewindio/jira-test-data-generator/blob/main/generators/benchmark.py`
 
 **Step 1: Create benchmark.py**
 
@@ -201,7 +201,7 @@ git commit -m "feat: add benchmark tracker for performance metrics"
 
 **Files:**
 - Create: `generators/checkpoint.py`
-- Reference: `/Users/dnorth/src/tooling/jira-test-data-generator/generators/checkpoint.py`
+- Reference: `https://github.com/rewindio/jira-test-data-generator/blob/main/generators/checkpoint.py`
 
 **Step 1: Create checkpoint.py**
 
@@ -268,7 +268,7 @@ git commit -m "feat: add checkpoint manager for resumable generation"
 **Files:**
 - Create: `confluence_user_generator.py`
 - Create: `tests/test_user_generator.py`
-- Reference: `/Users/dnorth/src/tooling/jira-test-data-generator/jira_user_generator.py`
+- Reference: `https://github.com/rewindio/jira-test-data-generator/blob/main/jira_user_generator.py`
 
 **Implementation Notes:**
 
@@ -526,9 +526,11 @@ The attachment generator was built with both sync and async methods using the le
 
 **Files:**
 - Created: `generators/comments.py`
-- Created: `tests/test_comments.py` (44 tests)
+- Created: `tests/test_comments.py` (53 tests)
 - Modified: `generators/__init__.py` (added CommentGenerator export)
-- Modified: `confluence_data_generator.py` (wired up comment phases)
+- Modified: `generators/checkpoint.py` (added comment metadata fields and methods)
+- Modified: `confluence_data_generator.py` (wired up comment phases with checkpoint resume)
+- Modified: `tests/test_checkpoint.py` (added comment metadata tests)
 
 **Implementation Notes:**
 
@@ -536,13 +538,18 @@ The comment generator was built with both sync and async methods for inline comm
 
 1. **Footer comments**: `POST /api/v2/footer-comments` with `pageId` and body
 2. **Inline comments**: `POST /api/v2/inline-comments` with `pageId`, body, and `inlineCommentProperties`
-3. **Comment versions**: GET current version + PUT with incremented version number
-4. **Version conflict handling**: Uses `suppress_errors=(409,)` with exponential backoff and version re-read (same pattern as blogposts)
-5. **Unified version methods**: `create_comment_version()` / `create_comment_versions_async()` take a `comment_type` parameter ("footer" or "inline") to select the right endpoint
+3. **Inline comment text selection**: Fetches page body via `GET /api/v2/pages/{id}?body-format=storage`, extracts a 4+ char word for `textSelection` (Confluence requires it to match real page text)
+4. **Async page text caching**: Per-page `asyncio.Lock` prevents duplicate fetches when multiple tasks request the same page concurrently
+5. **Comment versions**: GET current version + PUT with incremented version number
+6. **Version conflict handling**: Both sync and async single-comment methods use 409 retry with exponential backoff and version re-read. Uses `suppress_errors=(409,)` to avoid log spam.
+7. **Unified version methods**: `create_comment_version()` / `create_comment_versions_async()` take a `comment_type` parameter ("footer" or "inline") to select the right endpoint
+8. **Checkpoint resume**: `inline_comment_metadata` and `footer_comment_metadata` fields in `CheckpointData` enable resuming version phases after interruption
+9. **Exception handling**: `create_comment_versions_async()` logs and records exceptions from `asyncio.gather` instead of silently ignoring them
 
 **API Endpoints Used:**
 - `POST /api/v2/footer-comments` — Create footer comment
 - `POST /api/v2/inline-comments` — Create inline comment
+- `GET /api/v2/pages/{id}?body-format=storage` — Get page body for inline comment text selection
 - `GET /api/v2/footer-comments/{id}` — Get footer comment (for version reads)
 - `PUT /api/v2/footer-comments/{id}` — Update footer comment (version increment)
 - `GET /api/v2/inline-comments/{id}` — Get inline comment (for version reads)
@@ -551,63 +558,52 @@ The comment generator was built with both sync and async methods for inline comm
 **Orchestrator wiring:**
 - 4 sync methods: `_create_inline_comments_sync`, `_create_inline_comment_versions_sync`, `_create_footer_comments_sync`, `_create_footer_comment_versions_sync`
 - 4 async methods: mirrors of sync with `await`
+- All 8 methods persist/restore comment metadata via checkpoint for resume support
 - Phase 8 replaces "NOT YET IMPLEMENTED" stubs in both `generate_sync` and `generate_async`
 - Async session cleanup added to `finally` block
 
-**Tests:** 44 tests covering initialization, footer creation, inline creation (including inlineCommentProperties verification), versions (both types), dry run, async operations, and edge cases
+**API Gotcha:** The `inlineCommentProperties.textSelection` field must match actual text in the page body. Hardcoding a generic string like `"text"` results in a 400 BAD_REQUEST. The fix is to fetch the page body and extract a real word.
+
+**Tests:** 53 tests covering initialization, text extraction, footer creation, inline creation (including inlineCommentProperties verification), versions (both types with 409 retry), dry run, async operations, page text cache locking, exception handling, and edge cases
 
 ---
 
 ## Task 11: Template Generator (generators/templates.py)
 
-**Status: TODO**
+**Status: COMPLETED**
 
 **Files:**
-- Create: `generators/templates.py`
+- Created: `generators/templates.py` (~190 lines)
+- Created: `tests/test_templates.py` (22 tests)
+- Modified: `generators/__init__.py` (added TemplateGenerator export)
+- Modified: `confluence_data_generator.py` (wired up template phase)
 
-**Step 1: Create templates.py**
+**Implementation Notes:**
 
-```python
-class TemplateGenerator(ConfluenceAPIClient):
-    """Generates Confluence templates."""
+The template generator was built with both sync and async methods, following the blogpost generator pattern but simplified to just creation (no versions, labels, properties, or restrictions).
 
-    async def create_template_async(
-        self,
-        space_id: str,
-        name: str,
-        body: str,
-        description: str = ""
-    ) -> Optional[dict]:
-        """Create template via POST /wiki/rest/api/template"""
+1. **Legacy API**: Uses `POST /rest/api/template` (v1) since there is no v2 endpoint
+2. **Template types**: Alternates between `"page"` and `"blogpost"` using `index % 2`
+3. **Space key**: Template API requires `"space": {"key": ...}` (not space ID)
+4. **Dry-run IDs**: Format `dry-run-template-{space_key}-{index}`
+5. **Batch async**: Uses `asyncio.gather` with `return_exceptions=True` for error handling
 
-    async def create_templates_async(
-        self,
-        space_ids: list[str],
-        count: int,
-        prefix: str
-    ) -> list[dict]:
-        """Create templates distributed across spaces"""
-```
+**API Endpoint Used:**
+- `POST /rest/api/template` — Create content template
 
-Note: Templates use the older REST API (`/wiki/rest/api/template`)
+**Orchestrator wiring:**
+- `_create_templates_sync()` and `_create_templates_async()` methods added
+- Phase 9 stubs replaced with actual template creation
+- Guarded by `not self.content_only` (templates skipped in content-only mode)
+- Async session cleanup added to `finally` block
 
-**Step 2: Verify imports work**
-
-Run: `python -c "from generators.templates import TemplateGenerator; print('OK')"`
-Expected: `OK`
-
-**Step 3: Commit**
-
-```bash
-git add generators/templates.py
-git commit -m "feat: add template generator"
-```
+**Tests:** 22 tests covering initialization, sync/async creation, dry run, failure, type alternation, space distribution, payload structure, v1 URL verification, edge cases
 
 ---
 
 ## Task 12: Update generators/__init__.py
 
-**Status: PARTIAL** — Current generators exported; needs update after Task 11 (TemplateGenerator).
+**Status: COMPLETED** — All generators including TemplateGenerator now exported.
 
 **Files:**
 - Modify: `generators/__init__.py`
@@ -661,7 +657,7 @@ git commit -m "feat: export all generators from package"
 
 **Files:**
 - Create: `confluence_data_generator.py`
-- Reference: `/Users/dnorth/src/tooling/jira-test-data-generator/jira_data_generator.py`
+- Reference: `https://github.com/rewindio/jira-test-data-generator/blob/main/jira_data_generator.py`
 
 **Step 1: Create CLI argument parsing and setup**
 
@@ -1076,10 +1072,10 @@ At this point, the implementation is complete and ready for real-world testing a
 ## Execution Notes
 
 **Key files to reference during implementation:**
-- `/Users/dnorth/src/tooling/jira-test-data-generator/generators/base.py` - Rate limiting patterns
-- `/Users/dnorth/src/tooling/jira-test-data-generator/generators/checkpoint.py` - Checkpoint structure
-- `/Users/dnorth/src/tooling/jira-test-data-generator/generators/benchmark.py` - Benchmark tracking
-- `/Users/dnorth/src/tooling/jira-test-data-generator/jira_data_generator.py` - Main orchestrator patterns
+- `https://github.com/rewindio/jira-test-data-generator/blob/main/generators/base.py` - Rate limiting patterns
+- `https://github.com/rewindio/jira-test-data-generator/blob/main/generators/checkpoint.py` - Checkpoint structure
+- `https://github.com/rewindio/jira-test-data-generator/blob/main/generators/benchmark.py` - Benchmark tracking
+- `https://github.com/rewindio/jira-test-data-generator/blob/main/jira_data_generator.py` - Main orchestrator patterns
 
 **Confluence Cloud API v2 Reference:**
 - Spaces: `POST /wiki/api/v2/spaces`
